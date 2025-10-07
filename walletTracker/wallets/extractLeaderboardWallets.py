@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 
 # Configuration
-INPUT_FILE = Path('leaderboard_accountvalue.json')  # JSON file with leaderboardRows
-OUTPUT_FILE = Path('filtered_eth_addresses.txt')
+INPUT_FILE = Path('data/leaderboard_accountvalue.json')  # JSON file with leaderboardRows
+OUTPUT_FILE = Path('data/filtered_eth_addresses.txt')
 THRESHOLD = 1000.0  # accountValue threshold
 
 

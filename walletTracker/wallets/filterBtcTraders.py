@@ -4,8 +4,8 @@ from pathlib import Path
 from hyperliquid.utils import constants
 
 API_URL = f"{constants.MAINNET_API_URL}/info"
-INPUT_FILE = Path("allUsers.txt")
-OUTPUT_FILE = Path("filteredUsers.txt")
+INPUT_FILE = Path("data/allUsers.txt")
+OUTPUT_FILE = Path("data/filteredUsers.txt")
 
 async def fetch_btc_fills(session, wallet):
     payload = {"type": "userFills", "user": wallet, "startTime": 0}

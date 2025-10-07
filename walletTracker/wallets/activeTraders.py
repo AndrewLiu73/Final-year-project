@@ -7,7 +7,7 @@ import websockets
 
 # Configuration
 WS_URL = 'wss://rpc.hyperliquid.xyz/ws'
-OUTPUT_FILE = Path('users.txt')
+OUTPUT_FILE = Path('data/users.txt')
 
 # Setup logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')

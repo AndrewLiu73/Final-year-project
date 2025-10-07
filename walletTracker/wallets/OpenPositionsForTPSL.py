@@ -4,7 +4,7 @@ from pathlib import Path
 import random
 
 HYPERLIQUID_API = "https://api.hyperliquid.xyz/info"
-GOOD_TRADERS_FILE = "goodTraders.txt"
+GOOD_TRADERS_FILE = "data/goodTraders.txt"
 POSITIONS_OUTPUT_FILE = "positions_output.txt"
 RATE_LIMIT_DELAY = 1.5
 MAX_RETRIES = 3

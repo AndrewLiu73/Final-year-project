@@ -8,7 +8,7 @@ START_DATE = datetime(2024, 1, 1)
 END_DATE = datetime.now()
 
 # --- Load trader addresses
-with open("goodTraders.txt") as f:
+with open("data/goodTraders.txt") as f:
     traders = [line.strip() for line in f if line.strip()]
 
 # --- Fetch fills

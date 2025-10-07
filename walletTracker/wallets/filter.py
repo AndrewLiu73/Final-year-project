@@ -35,7 +35,7 @@ async def has_btc_trade(session: aiohttp.ClientSession, api_url: str, wallet: st
             return True
     return False
 
-OUTPUT_FILE = Path('btc_traders.txt')  # file to append BTC traders
+OUTPUT_FILE = Path('data/btc_traders.txt')  # file to append BTC traders
 
 async def filter_btc_traders(address_file: Path, testnet: bool = False) -> List[str]:
     """
@@ -81,12 +81,12 @@ async def filter_btc_traders(address_file: Path, testnet: bool = False) -> List[
     return traders
 
 async def main():
-    address_file = Path('filtered_eth_addresses.txt')
+    address_file = Path('data/filtered_eth_addresses.txt')
     traders = await filter_btc_traders(address_file, testnet=False)
     if not traders:
         logger.info("No wallets found that traded BTC.")
     else:
-        output_file = Path('btc_traders.txt')
+        output_file = Path('data/btc_traders.txt')
         output_file.write_text("\n".join(traders) + "\n")
         logger.info(f"Wrote {len(traders)} BTC trading wallets to {output_file}")
 

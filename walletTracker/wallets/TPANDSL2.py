@@ -11,7 +11,7 @@ from hyperliquid.utils import constants
 
 # --- Configuration
 HYPERLIQUID_API = constants.MAINNET_API_URL
-GOOD_TRADERS_FILE = "goodTraders.txt"
+GOOD_TRADERS_FILE = "data/goodTraders.txt"
 RATE_LIMIT_DELAY = 1.5   # seconds between requests
 LOOP_DELAY = 60          # seconds between analysis rounds
 TARGET_COINS = ["BTC", "HYPE"]

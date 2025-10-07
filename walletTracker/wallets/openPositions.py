@@ -4,7 +4,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 
 HYPERLIQUID_API = "https://api.hyperliquid.xyz/info"
-GOOD_TRADERS_FILE = "goodTraders.txt"
+GOOD_TRADERS_FILE = "data/goodTraders.txt"
 RATE_LIMIT_DELAY = 1.5  # seconds between wallet requests
 LOOP_DELAY = 60  # delay between summary refreshes
 TARGET_COINS = ["BTC", "HYPE"]

@@ -6,8 +6,8 @@ from datetime import datetime
 
 # --- Config
 HYPERLIQUID_API = "https://api.hyperliquid.xyz/info"
-GOOD_TRADERS_FILE = "goodTraders.txt"
-OUTPUT_FILE = "bias_summary.txt"
+GOOD_TRADERS_FILE = "data/goodTraders.txt"
+OUTPUT_FILE = "data/bias_summary.txt"
 RATE_LIMIT_DELAY = 1.5
 LOOP_DELAY = 30  # One update per minute
 TARGET_COINS = ["BTC", "HYPE", "ETH"]

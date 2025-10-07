@@ -6,7 +6,7 @@ from pathlib import Path
 from collections import defaultdict, Counter
 
 HYPERLIQUID_API = "https://api.hyperliquid.xyz/info"
-GOOD_TRADERS_FILE = "goodTraders.txt"
+GOOD_TRADERS_FILE = "data/goodTraders.txt"
 CHECK_INTERVAL = 30  # seconds
 RATE_LIMIT_DELAY = 1.5  # seconds between each wallet to avoid 429s
 MAX_RETRIES = 3
