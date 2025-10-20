@@ -1,22 +1,30 @@
 import asyncio
 import json
 import logging
-from pathlib import Path
-
 import websockets
+import motor.motor_asyncio
 
-# Configuration
+# MongoDB connection details
+MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+  # Change if using MongoDB Atlas
+DB_NAME = "hyperliquid"
+COLLECTION_NAME = "users"
+
+# WebSocket URL
 WS_URL = 'wss://rpc.hyperliquid.xyz/ws'
-OUTPUT_FILE = Path('data/users.txt')
 
 # Setup logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger('ExplorerTxTracker')
+logger = logging.getLogger("ExplorerTxTracker")
 
 async def track_explorer_txs():
     seen = set()
+    # Create MongoDB client and collection
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    db = client[DB_NAME]
+    users_collection = db[COLLECTION_NAME]
+
     try:
-        # Pass the Origin header correctly
         async with websockets.connect(WS_URL, origin="https://app.hyperliquid.xyz") as ws:
             logger.info("WebSocket connection opened")
             # Subscribe to the explorerTxs feed
@@ -36,15 +44,18 @@ async def track_explorer_txs():
                         user = tx.get("user") or tx.get("wallet")
                         if user and user not in seen:
                             seen.add(user)
-                            # Persist new user to disk
-                            OUTPUT_FILE.write_text("\n".join(sorted(seen)) + "\n")
-                            logger.info(f"New user: {user}")
+                            # Insert user into MongoDB if not already present
+                            await users_collection.update_one(
+                                {"user": user},
+                                {"$setOnInsert": {"user": user}},
+                                upsert=True
+                            )
+                            logger.info(f"New user saved to MongoDB: {user}")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-
     finally:
-        logger.info("WebSocket closed, saving all seen users")
-        OUTPUT_FILE.write_text("\n".join(sorted(seen)) + "\n")
+        client.close()
+        logger.info("MongoDB connection closed")
 
 if __name__ == '__main__':
     asyncio.run(track_explorer_txs())

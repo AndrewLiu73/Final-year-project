@@ -440,7 +440,7 @@ class HyperliquidPnLAnalyzer:
 def main():
     """Main execution function"""
     config = PnLConfig(
-        trader_address="0x531fb7439651469b9bf6300c998b87ad97fcb6dd",
+        trader_address="0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
         start_date=datetime(2024, 1, 1),
         end_date=datetime.now(),
         save_data=True

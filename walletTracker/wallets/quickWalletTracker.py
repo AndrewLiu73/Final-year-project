@@ -7,7 +7,7 @@ from hyperliquid.utils import constants
 
 # --- Setup
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
-trader_address = "0x1e771e1b95c86491299d6e2a5c3b3842d03b552e"
+trader_address = "0x35811174314e93b13d9a7998316c70a0385c6c42"
 
 # --- Fetch user state
 print("Fetching user state...\n")
