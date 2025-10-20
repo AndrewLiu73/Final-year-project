@@ -86,6 +86,7 @@ async def main():
         min_balance=1_000_000,
         testnet=False
     )
+    #dadw
     if users:
         df = pd.DataFrame(users)
         output_csv = Path('data/millionaire_users.csv')
