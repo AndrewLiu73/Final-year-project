@@ -50,7 +50,7 @@ async def track_explorer_txs():
                                 {"$setOnInsert": {"user": user}},
                                 upsert=True
                             )
-                            logger.info(f"New user saved to MongoDB: {user}")
+                            logger.info(f"\033[92mNew user saved to MongoDB: {user}\033[0m")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:

@@ -3,6 +3,8 @@ import logging
 from pathlib import Path
 import motor.motor_asyncio
 import pandas as pd
+from datetime import datetime, timezone
+import os
 
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
@@ -10,11 +12,32 @@ from hyperliquid.utils import constants
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("MillionaireUserFilter")
 
-# MongoDB connection details
 MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
 DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
 MILLIONAIRE_COLLECTION = "millionaires"
+
+CHECKPOINT_DIR = Path("checkpoint")
+CHECKPOINT_DIR.mkdir(exist_ok=True)
+CHECKPOINT_FILE = CHECKPOINT_DIR / "millionaire_scan_checkpoint.txt"
+
+
+def save_checkpoint(index: int, wallets_length: int):
+    with open(CHECKPOINT_FILE, "w") as f:
+        now = datetime.now(timezone.utc).isoformat()
+        f.write(f"{index},{wallets_length},{now}\n")
+
+
+def load_checkpoint():
+    if not CHECKPOINT_FILE.exists():
+        return 0
+    with open(CHECKPOINT_FILE, "r") as f:
+        line = f.readline().strip()
+        if not line:
+            return 0
+        idx_s, wallets_s, *_ = line.split(",")
+        return int(idx_s)
+
 
 async def fetch_wallets_from_mongodb() -> list:
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
@@ -25,6 +48,7 @@ async def fetch_wallets_from_mongodb() -> list:
         wallets.append(doc["user"])
     client.close()
     return wallets
+
 
 def fetch_account_value(info: Info, wallet: str) -> float:
     """Fetch current account value using Hyperliquid SDK"""
@@ -41,9 +65,10 @@ def fetch_account_value(info: Info, wallet: str) -> float:
         logger.error(f"Error fetching account value for {wallet}: {e}")
         return 0.0
 
+
 async def filter_millionaire_users(
-    min_balance: float = 1_000_000,
-    testnet: bool = False
+        min_balance: float = 1_000_000,
+        testnet: bool = False
 ) -> list:
     wallets = await fetch_wallets_from_mongodb()
     logger.info(f"Loaded {len(wallets)} wallets from MongoDB")
@@ -51,42 +76,53 @@ async def filter_millionaire_users(
     api_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
     info = Info(api_url, skip_ws=True)
     millionaires = []
-
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
     millionaire_collection = db[MILLIONAIRE_COLLECTION]
 
-    for idx, wallet in enumerate(wallets, start=1):
-        logger.info(f"\n[{idx}/{len(wallets)}] Checking {wallet}")
+    last_idx = load_checkpoint()
+    logger.info(f"Resuming from checkpoint index {last_idx + 1}")
 
-        try:
-            balance = fetch_account_value(info, wallet)
-            if balance > min_balance:
-                metrics = {'wallet': wallet, 'balance': balance}
-                millionaires.append(metrics)
-                logger.info(f"✅ {wallet} has account value ${balance:,.2f} - Added to millionaires list")
+    try:
+        for idx, wallet in enumerate(wallets[last_idx:], start=last_idx + 1):
+            logger.info(f"\n[{idx}/{len(wallets)}] Checking {wallet}")
 
-                await millionaire_collection.update_one(
-                    {"wallet": wallet},
-                    {"$set": metrics},
-                    upsert=True
-                )
-            else:
-                logger.info(f"❌ {wallet} balance below threshold")
-        except Exception as e:
-            logger.error(f"Error analyzing {wallet}: {e}")
+            try:
+                balance = fetch_account_value(info, wallet)
+                if balance > min_balance:
+                    metrics = {'wallet': wallet, 'balance': balance}
+                    millionaires.append(metrics)
+                    logger.info(f"✅ {wallet} has account value ${balance:,.2f} - Added to millionaires list")
 
-        await asyncio.sleep(2)  # sleep between wallets (rate limit)
+                    await millionaire_collection.update_one(
+                        {"wallet": wallet},
+                        {"$set": metrics},
+                        upsert=True
+                    )
+                else:
+                    logger.info(f"❌ {wallet} balance below threshold")
+            except Exception as e:
+                logger.error(f"Error analyzing {wallet}: {e}")
 
-    client.close()
+            # Save checkpoint every 10 wallets
+            if idx % 10 == 0 or idx == len(wallets):
+                save_checkpoint(idx, len(wallets))
+
+            await asyncio.sleep(2)  # sleep between wallets (rate limit)
+    finally:
+        # Always save checkpoint on exit/crash
+        current_idx = idx if 'idx' in locals() else last_idx
+        save_checkpoint(current_idx, len(wallets))
+        client.close()
+
     return millionaires
+
 
 async def main():
     users = await filter_millionaire_users(
         min_balance=1_000_000,
         testnet=False
     )
-    #dadw
     if users:
         df = pd.DataFrame(users)
         output_csv = Path('data/millionaire_users.csv')
@@ -96,6 +132,7 @@ async def main():
         logger.info(f"Detailed metrics saved to {output_csv}")
     else:
         logger.info("\n❌ No users met the balance criteria")
+
 
 if __name__ == '__main__':
     asyncio.run(main())
