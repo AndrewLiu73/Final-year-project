@@ -1,120 +1,122 @@
-import aiohttp
 import asyncio
-from pathlib import Path
-from collections import Counter, defaultdict
+import aiohttp
+import json
+from motor.motor_asyncio import AsyncIOMotorClient
+from collections import Counter
 
-HYPERLIQUID_API = "https://api.hyperliquid.xyz/info"
-GOOD_TRADERS_FILE = "data/goodTraders.txt"
-RATE_LIMIT_DELAY = 1.5  # seconds between wallet requests
-LOOP_DELAY = 60  # delay between summary refreshes
-TARGET_COINS = ["BTC", "HYPE"]
-MAX_RETRIES = 3
+MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+DB_NAME, COLL = "hyperliquid", "millionaires"
+API_URL = "https://api.hyperliquid.xyz/info"
+COINS = ["BTC", "ETH", "HYPE"]
+PARALLEL = 10
+RETRY = 3
 
+async def fetch_wallets():
+    cli = AsyncIOMotorClient(MONGO_URI)
+    docs = await cli[DB_NAME][COLL].find({}, {"_id": 0, "wallet": 1}).to_list(None)
+    return [doc["wallet"] for doc in docs if "wallet" in doc]
 
-def load_wallets():
-    path = Path(GOOD_TRADERS_FILE)
-    if not path.exists():
-        raise FileNotFoundError(f"{GOOD_TRADERS_FILE} not found")
-    with path.open() as f:
-        return [line.strip() for line in f if line.strip().startswith("0x") and len(line.strip()) == 42]
-
-
-async def fetch_positions(session, wallet):
-    for attempt in range(MAX_RETRIES):
+async def fetch_position(session, wallet):
+    for attempt in range(RETRY):
         try:
-            async with session.post(
-                    HYPERLIQUID_API,
-                    json={"type": "clearinghouseState", "user": wallet}
-            ) as resp:
+            async with session.post(API_URL, json={"type": "clearinghouseState", "user": wallet}) as resp:
                 if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("assetPositions", [])
+                    js = await resp.json()
+                    return wallet, js.get("assetPositions", [])
                 elif resp.status == 422:
-                    print(f"[{wallet}] ❌ Wallet not supported or invalid (422)")
-                    return []
+                    print(f"[{wallet}] Invalid.")
+                    return wallet, []
                 else:
-                    print(f"[{wallet}] Error: {resp.status}")
+                    print(f"[{wallet}] Status {resp.status}")
         except Exception as e:
             print(f"[{wallet}] Exception: {e}")
+        await asyncio.sleep(2**attempt)
+    print(f"[{wallet}] Failed after retries")
+    return wallet, []
 
-        wait_time = 2 ** attempt
-        print(f"[{wallet}] Retry {attempt + 1}/{MAX_RETRIES} in {wait_time}s...")
-        await asyncio.sleep(wait_time)
+async def process_wallets(wallets):
+    bias_qty = {coin: Counter() for coin in COINS}
+    bias_val = {coin: Counter() for coin in COINS}
+    wallet_bias = {}
+    async with aiohttp.ClientSession() as session:
+        sema = asyncio.Semaphore(PARALLEL)
+        async def worker(wallet):
+            async with sema:
+                w, positions = await fetch_position(session, wallet)
+                per_qty = {coin: Counter() for coin in COINS}
+                per_val = {coin: Counter() for coin in COINS}
+                for pos in positions:
+                    coin = pos.get("position", {}).get("coin")
+                    szi = float(pos.get("position", {}).get("szi", 0))
+                    val = float(pos.get("position", {}).get("positionValue", 0))
+                    if coin in bias_qty and szi and val:
+                        side = "B" if szi > 0 else "A"
+                        bias_qty[coin][side] += abs(szi)
+                        bias_val[coin][side] += val
+                        per_qty[coin][side] += abs(szi)
+                        per_val[coin][side] += val
+                wallet_bias[wallet] = {}
+                for coin in COINS:
+                    long_val = per_val[coin].get("B", 0.0)
+                    short_val = per_val[coin].get("A", 0.0)
+                    total_val = long_val + short_val
+                    long_pct = (long_val / total_val * 100) if total_val > 0 else 0
+                    short_pct = (short_val / total_val * 100) if total_val > 0 else 0
+                    direction = (
+                        "Long" if long_val > short_val else
+                        "Short" if short_val > long_val else
+                        "Neutral"
+                    )
+                    wallet_bias[wallet][coin] = {
+                        "long": long_val,
+                        "short": short_val,
+                        "long_pct": long_pct,
+                        "short_pct": short_pct,
+                        "direction": direction
+                    }
+        tasks = [worker(w) for w in wallets]
+        for i in range(0, len(tasks), PARALLEL):
+            await asyncio.gather(*tasks[i:i+PARALLEL])
+            await asyncio.sleep(1)
 
-    print(f"[{wallet}] ⚠️ Failed after {MAX_RETRIES} attempts.")
-    return []
-
-
-async def process_wallets(session, wallets):
-    total_bias_qty = {coin: Counter() for coin in TARGET_COINS}
-    total_bias_val = {coin: Counter() for coin in TARGET_COINS}
-
-    for wallet in wallets:
-        try:
-            positions = await fetch_positions(session, wallet)
-            if not positions:
-                continue
-
-            print(f"\n[{wallet}] Open Positions:")
-            for pos_data in positions:
-                pos = pos_data.get("position", {})
-                coin = pos.get("coin")
-                szi = float(pos.get("szi", 0))
-                val = float(pos.get("positionValue", 0))
-                if szi == 0 or val == 0:
-                    continue
-
-                direction = "Long" if szi > 0 else "Short"
-                print(f"    {coin} → {direction} {abs(szi):.4f} | ${val:.2f} USDC")
-
-                if coin in total_bias_qty:
-                    side = "B" if szi > 0 else "A"
-                    total_bias_qty[coin][side] += abs(szi)
-                    total_bias_val[coin][side] += val
-
-            await asyncio.sleep(RATE_LIMIT_DELAY)
-        except Exception as e:
-            print(f"[{wallet}] Unexpected error: {e}")
-
-    return total_bias_qty, total_bias_val
-
-
-async def print_bias_summary(total_bias_qty, total_bias_val):
-    print("\n===== Directional Bias Summary =====")
-    for coin in TARGET_COINS:
-        # Raw size
-        long_sz = total_bias_qty[coin].get("B", 0.0)
-        short_sz = total_bias_qty[coin].get("A", 0.0)
-        total_sz = long_sz + short_sz
-
-        # USD notional
-        long_val = total_bias_val[coin].get("B", 0.0)
-        short_val = total_bias_val[coin].get("A", 0.0)
+    aggregate_bias = {}
+    for coin in COINS:
+        long_val = bias_val[coin].get("B", 0.0)
+        short_val = bias_val[coin].get("A", 0.0)
         total_val = long_val + short_val
-
         long_pct = (long_val / total_val * 100) if total_val > 0 else 0
         short_pct = (short_val / total_val * 100) if total_val > 0 else 0
-        direction = "Long" if long_val > short_val else "Short" if short_val > long_val else "Neutral"
+        direction = (
+            "Long" if long_val > short_val else
+            "Short" if short_val > long_val else
+            "Neutral"
+        )
+        aggregate_bias[coin] = {
+            "long": long_val, "short": short_val,
+            "long_pct": long_pct, "short_pct": short_pct,
+            "direction": direction
+        }
+    return wallet_bias, aggregate_bias
 
-        print(f"{coin} Bias → {direction}")
-        print(f"    Size     → Long: {long_sz:.4f} | Short: {short_sz:.4f}")
-        print(f"    Position → Long: ${long_val:.2f} ({long_pct:.1f}%) | Short: ${short_val:.2f} ({short_pct:.1f}%)")
-    print("=====================================\n")
+def save_bias(wallet_bias, aggregate_bias):
+    out = {
+        "wallet_bias": wallet_bias,
+        "aggregate_bias": aggregate_bias
+    }
+    with open("bias_summary.json", "w") as f:
+        json.dump(out, f)
 
+async def rebalance_and_save():
+    wallets = await fetch_wallets()
+    print(f"Processing {len(wallets)} wallets...")
+    wallet_bias, aggregate_bias = await process_wallets(wallets)
+    save_bias(wallet_bias, aggregate_bias)
+    print("Bias summary saved to bias_summary.json")
 
 async def main():
-    wallets = load_wallets()
-    print(f"Loaded {len(wallets)} wallets.")
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                qty_bias, val_bias = await process_wallets(session, wallets)
-                await print_bias_summary(qty_bias, val_bias)
-            except Exception as e:
-                print(f"🔴 Critical loop error: {e}")
-            print(f"⏳ Waiting {LOOP_DELAY}s before next round...\n")
-            await asyncio.sleep(LOOP_DELAY)
-
+    while True:
+        await rebalance_and_save()
+        await asyncio.sleep(60)  # Refresh every 60s
 
 if __name__ == "__main__":
     asyncio.run(main())
