@@ -113,18 +113,22 @@ async def save_bias_to_mongo(bias_summary):
 # --- Main job: update every 20 minutes ---
 async def main():
     while True:
-        print("Fetching latest wallet positions and computing bias summary...")
-        wallets = await fetch_millionaires_wallets()
-        async with aiohttp.ClientSession() as session:
-            wallet_positions = await fetch_all_positions(wallets, session, parallel=PARALLEL)
-        bias_summary = summarize_bias(wallet_positions)
-        print("Bias summary saved at", bias_summary["timestamp"])
-        await save_bias_to_mongo(bias_summary)
-        # Print a basic console snapshot:
-        for coin, stats in bias_summary["aggregate"].items():
-            print(f"{coin}: {stats['direction']} | Long: ${stats['long']:.2f} ({stats['long_pct']:.1f}%) | Short: ${stats['short']:.2f} ({stats['short_pct']:.1f}%)")
-        print("---- Next update in 20 minutes ----")
-        await asyncio.sleep(20*60)
+        try:
+            print("Fetching latest wallet positions and computing bias summary...")
+            wallets = await fetch_millionaires_wallets()
+            async with aiohttp.ClientSession() as session:
+                wallet_positions = await fetch_all_positions(wallets, session, parallel=PARALLEL)
+            bias_summary = summarize_bias(wallet_positions)
+            print("Bias summary saved at", bias_summary["timestamp"])
+            await save_bias_to_mongo(bias_summary)
+            for coin, stats in bias_summary["aggregate"].items():
+                print(f"{coin}: {stats['direction']} | Long: ${stats['long']:.2f} ({stats['long_pct']:.1f}%) | Short: ${stats['short']:.2f} ({stats['short_pct']:.1f}%)")
+            print("---- Next update in 20 minutes ----")
+            await asyncio.sleep(20*60)
+        except Exception as e:
+            print(f"[ERROR] {e} -- sleeping 2 minutes before retry")
+            await asyncio.sleep(120)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
