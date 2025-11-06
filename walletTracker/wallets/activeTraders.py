@@ -3,20 +3,17 @@ import json
 import logging
 import websockets
 import motor.motor_asyncio
-from datetime import datetime, timezone
 
 # MongoDB connection details
 MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
 DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
-MONITOR_COLLECTION = "user_monitor"
 WS_URL = 'wss://rpc.hyperliquid.xyz/ws'
 
 # Logger setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("ExplorerTxTracker")
 
-# Insert user if new (MongoDB does the uniqueness check)
 async def add_user(users_collection, user):
     try:
         res = await users_collection.update_one(
@@ -29,7 +26,6 @@ async def add_user(users_collection, user):
     except Exception as e:
         logger.error(f"Error inserting user {user}: {e}")
 
-# Persistent websocket watcher
 async def websocket_watcher():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
@@ -58,30 +54,5 @@ async def websocket_watcher():
             logger.error(f"WebSocket error: {e} - reconnecting in 5s...")
             await asyncio.sleep(5)
 
-# Monitoring/analytics: records user count every day
-async def daily_monitor():
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-    db = client[DB_NAME]
-    users_collection = db[USERS_COLLECTION]
-    monitor_collection = db[MONITOR_COLLECTION]
-
-    while True:
-        try:
-            ts = datetime.now(timezone.utc).isoformat()
-            user_count = await users_collection.count_documents({})
-            doc = {"timestamp": ts, "user_count": user_count}
-            await monitor_collection.insert_one(doc)
-            logger.info(f"\033[94mMONITOR: Saved {user_count} users at {ts}\033[0m")
-        except Exception as e:
-            logger.error(f"Monitor error: {e}")
-        await asyncio.sleep(24 * 60 * 60)  # 24 hours
-
-# Entry: run websocket watcher and monitor concurrently
-async def main():
-    await asyncio.gather(
-        websocket_watcher(),
-        daily_monitor()
-    )
-
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(websocket_watcher())
