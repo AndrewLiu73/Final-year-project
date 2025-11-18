@@ -4,7 +4,7 @@ from pathlib import Path
 import motor.motor_asyncio
 import pandas as pd
 from datetime import datetime, timezone
-from pymongo import UpdateOne         # <---- NEW
+from pymongo import UpdateOne
 from typing import List, Dict
 import time
 
