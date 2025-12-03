@@ -19,10 +19,6 @@ DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
 BALANCES_COLLECTION = "balances"
 
-CHECKPOINT_DIR = Path("checkpoint")
-CHECKPOINT_DIR.mkdir(exist_ok=True)
-CHECKPOINT_FILE = CHECKPOINT_DIR / "balance_fetch_checkpoint.txt"
-
 MAX_REQUESTS_PER_MINUTE = 55
 CONCURRENT_WORKERS = 10
 
@@ -46,26 +42,6 @@ class RateLimiter:
                     sleep_time = (1 - self.tokens) * (60.0 / self.max_requests)
                     await asyncio.sleep(sleep_time)
             self.tokens -= 1
-
-
-def save_checkpoint(index: int, total_users: int):
-    with open(CHECKPOINT_FILE, "w") as f:
-        now = datetime.now(timezone.utc).isoformat()
-        f.write(f"{index},{total_users},{now}\n")
-
-
-def load_checkpoint():
-    if not CHECKPOINT_FILE.exists():
-        return 0
-    try:
-        with open(CHECKPOINT_FILE, "r") as f:
-            line = f.readline().strip()
-            if not line:
-                return 0
-            idx_s, *_ = line.split(",")
-            return int(idx_s)
-    except:
-        return 0
 
 
 # ✅ SINGLE fetch_users_from_mongodb
@@ -129,11 +105,10 @@ async def process_user_batch(users: List[Dict], info: Info, rate_limiter: RateLi
     return [result for result in results if not isinstance(result, Exception)]
 
 
-# ✅ fetch_all_user_balances (was missing)
 async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[Dict]:
     users = await fetch_users_from_mongodb()
     if not users:
-        logger.info("✅ No users found")
+        logger.info("✅ No users need balance fetching")
         return []
 
     total_users = len(users)
@@ -147,20 +122,15 @@ async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[
     db = client[DB_NAME]
     balances_collection = db[BALANCES_COLLECTION]
 
-    last_idx = load_checkpoint()
-    logger.info(f"Resuming from checkpoint index {last_idx}")
-    remaining_users = users[last_idx:]
     all_results = []
-
     try:
-        for batch_start in range(0, len(remaining_users), batch_size):
-            batch = remaining_users[batch_start:batch_start + batch_size]
-            current_idx = last_idx + batch_start
-            logger.info(f"\n[{current_idx}/{total_users}] Processing batch of {len(batch)} users")
+        for batch_start in range(0, total_users, batch_size):
+            batch = users[batch_start:batch_start + batch_size]
+            logger.info(f"\n[{batch_start}/{total_users}] Processing batch of {len(batch)} users")
 
             batch_results = await process_user_batch(batch, info, rate_limiter, balances_collection)
             all_results.extend(batch_results)
-            save_checkpoint(current_idx + len(batch), total_users)
+
             await asyncio.sleep(0.1)
     except KeyboardInterrupt:
         logger.info("⏹️ Interrupted by user")
@@ -171,6 +141,7 @@ async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[
 
     logger.info(f"✅ Completed! Processed {len(all_results)} users")
     return all_results
+
 
 
 # ✅ create_balance_index (unchanged)
