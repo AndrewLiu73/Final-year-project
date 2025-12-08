@@ -10,11 +10,20 @@ import time
 
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
+import os
+from dotenv import load_dotenv
+
+# Resolve project root (parent of this file's folder)
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_PATH)
+
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("UserBalanceFetcher")
 
-MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
 BALANCES_COLLECTION = "balances"

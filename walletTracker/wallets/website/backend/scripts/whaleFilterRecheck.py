@@ -4,24 +4,29 @@ from pathlib import Path
 import motor.motor_asyncio
 import pandas as pd
 from datetime import datetime, timezone
-from pymongo import UpdateOne
+from pymongo import UpdateOne, DeleteOne
 from typing import List, Dict
 import time
+import os
+from dotenv import load_dotenv
 
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger("MillionaireUserFilter")
+logger = logging.getLogger("MillionaireUserRecheck")
 
-MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_PATH)
+
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
-USERS_COLLECTION = "users"
 MILLIONAIRE_COLLECTION = "millionaires"
 
-CHECKPOINT_DIR = Path("checkpoint")
+CHECKPOINT_DIR = Path("../../../checkpoint")
 CHECKPOINT_DIR.mkdir(exist_ok=True)
-CHECKPOINT_FILE = CHECKPOINT_DIR / "millionaire_scan_checkpoint.txt"
+CHECKPOINT_FILE = CHECKPOINT_DIR / "millionaire_recheck_checkpoint.txt"
 
 MAX_REQUESTS_PER_MINUTE = 55
 CONCURRENT_WORKERS = 10  # Process 10 wallets concurrently
@@ -63,14 +68,14 @@ def load_checkpoint():
         idx_s, wallets_s, *_ = line.split(",")
         return int(idx_s)
 
-async def fetch_wallets_from_mongodb() -> list:
+async def fetch_millionaire_wallets_from_mongodb() -> List[str]:
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
-    users_collection = db[USERS_COLLECTION]
-    cursor = users_collection.find({}, {"_id": 0, "user": 1})
+    millionaires_collection = db[MILLIONAIRE_COLLECTION]
+    cursor = millionaires_collection.find({}, {"_id": 0, "wallet": 1})
     wallets = await cursor.to_list(length=None)
     client.close()
-    return [doc["user"] for doc in wallets]
+    return [doc["wallet"] for doc in wallets]
 
 async def fetch_account_value_async(info: Info, wallet: str, rate_limiter: RateLimiter) -> tuple:
     await rate_limiter.acquire()
@@ -88,63 +93,19 @@ async def fetch_account_value_async(info: Info, wallet: str, rate_limiter: RateL
         logger.error(f"Error fetching account value for {wallet}: {e}")
         return wallet, 0.0
 
-async def process_wallet_batch(
-        wallets: List[str],
-        info: Info,
-        rate_limiter: RateLimiter,
-        min_balance: float,
-        millionaire_collection
-) -> List[Dict]:
-    tasks = [fetch_account_value_async(info, wallet, rate_limiter) for wallet in wallets]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    millionaires = []
-    bulk_operations = []
-
-    for result in results:
-        if isinstance(result, Exception):
-            logger.error(f"Task failed with exception: {result}")
-            continue
-
-        wallet, balance = result
-        if balance > min_balance:
-            metrics = {'wallet': wallet, 'balance': balance}
-            millionaires.append(metrics)
-            logger.info(f"✅ {wallet} has account value ${balance:,.2f}")
-
-            # Correct bulk update operation:
-            bulk_operations.append(
-                UpdateOne(
-                    {"wallet": wallet},
-                    {"$set": metrics},
-                    upsert=True
-                )
-            )
-        else:
-            logger.info(f"❌ {wallet} balance below threshold")
-
-    # Batch MongoDB updates
-    if bulk_operations:
-        try:
-            await millionaire_collection.bulk_write(bulk_operations, ordered=False)
-        except Exception as e:
-            logger.error(f"Bulk write error: {e}")
-
-    return millionaires
-
-async def filter_millionaire_users(
+async def recheck_millionaires(
         min_balance: float = 1_000_000,
         testnet: bool = False,
         batch_size: int = CONCURRENT_WORKERS
-) -> list:
-    wallets = await fetch_wallets_from_mongodb()
-    logger.info(f"Loaded {len(wallets)} wallets from MongoDB")
+) -> List[Dict]:
+    wallets = await fetch_millionaire_wallets_from_mongodb()
+    logger.info(f"Loaded {len(wallets)} millionaire wallets from MongoDB for re-check")
 
     api_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
     info = Info(api_url, skip_ws=True)
 
     rate_limiter = RateLimiter(MAX_REQUESTS_PER_MINUTE)
-    millionaires = []
+    millionaires_still_valid = []
 
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
@@ -156,40 +117,62 @@ async def filter_millionaire_users(
     remaining_wallets = wallets[last_idx:]
 
     try:
-        # Process wallets in batches concurrently
         for batch_start in range(0, len(remaining_wallets), batch_size):
-            batch = remaining_wallets[batch_start:batch_start + batch_size]
+            batch = remaining_wallets[batch_start:batch_start+batch_size]
             current_idx = last_idx + batch_start
+            logger.info(f"\n[{current_idx}/{len(wallets)}] Processing batch of {len(batch)} millionaire wallets")
 
-            logger.info(f"\n[{current_idx}/{len(wallets)}] Processing batch of {len(batch)} wallets")
+            tasks = [fetch_account_value_async(info, wallet, rate_limiter) for wallet in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            batch_millionaires = await process_wallet_batch(
-                batch, info, rate_limiter, min_balance, millionaire_collection
-            )
-            millionaires.extend(batch_millionaires)
+            bulk_operations = []
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Task failed with exception: {result}")
+                    continue
+
+                wallet, balance = result
+                if balance >= min_balance:
+                    millionaires_still_valid.append({"wallet": wallet, "balance": balance})
+                    bulk_operations.append(
+                        UpdateOne(
+                            {"wallet": wallet},
+                            {"$set": {"balance": balance}},
+                            upsert=False
+                        )
+                    )
+                    logger.info(f"✅ {wallet} remains millionaire with balance ${balance:,.2f}")
+                else:
+                    bulk_operations.append(DeleteOne({"wallet": wallet}))
+                    logger.info(f"❌ {wallet} no longer qualifies as millionaire; removing")
+
+            if bulk_operations:
+                await millionaire_collection.bulk_write(bulk_operations, ordered=False)
+
             save_checkpoint(current_idx + len(batch), len(wallets))
+
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Fatal error during recheck: {e}")
     finally:
         client.close()
 
-    return millionaires
+    return millionaires_still_valid
 
 async def main():
-    users = await filter_millionaire_users(
+    valid_millionaires = await recheck_millionaires(
         min_balance=1_000_000,
         testnet=False,
         batch_size=CONCURRENT_WORKERS
     )
-    if users:
-        df = pd.DataFrame(users)
-        output_csv = Path('data/millionaire_users.csv')
+    if valid_millionaires:
+        df = pd.DataFrame(valid_millionaires)
+        output_csv = Path('../../../data/millionaires_rechecked.csv')
         output_csv.parent.mkdir(exist_ok=True)
         df.to_csv(output_csv, index=False)
-        logger.info(f"\n✅ Found {len(users)} users with >$1M account value")
-        logger.info(f"Detailed metrics saved to {output_csv}")
+        logger.info(f"\n✅ Rechecked and found {len(valid_millionaires)} valid millionaires")
+        logger.info(f"Updated data saved to {output_csv}")
     else:
-        logger.info("\n❌ No users met the balance criteria")
+        logger.info("\n❌ No millionaire wallets remain after re-check")
 
 if __name__ == '__main__':
     asyncio.run(main())

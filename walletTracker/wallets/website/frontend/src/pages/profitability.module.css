@@ -1,0 +1,348 @@
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  background: #0f172a;
+  color: #f1f5f9;
+  min-height: 100vh;
+}
+
+.header {
+  margin-bottom: 32px;
+}
+
+.header h1 {
+  margin: 0 0 8px 0;
+  font-size: 32px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.controlsSection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.filterBlock {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+}
+
+.filterBlock h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  color: #e2e8f0;
+}
+
+.sliderGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.controlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controlGroup label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #cbd5e1;
+  letter-spacing: 0.5px;
+}
+
+.sliderContainer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #334155;
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.valueLabel {
+  min-width: 60px;
+  text-align: right;
+  font-weight: 600;
+  color: #3b82f6;
+  font-size: 14px;
+}
+
+.searchGroup {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 14px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #f1f5f9;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 200ms;
+}
+
+.searchInput:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.sortSelect {
+  padding: 10px 14px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #f1f5f9;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 200ms;
+}
+
+.sortSelect:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.statsSection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat {
+  background: #1e293b;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+}
+
+.statLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.statValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: #3b82f6;
+}
+
+.listSection {
+  background: #1e293b;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.traderItem {
+  padding: 16px 20px;
+  border-bottom: 1px solid #334155;
+  display: grid;
+  grid-template-columns: 150px 200px 200px 1fr;
+  gap: 20px;
+  align-items: center;
+  transition: background 150ms;
+}
+
+.traderItem:hover {
+  background: #293548;
+}
+
+.traderItem:last-child {
+  border-bottom: none;
+}
+
+.walletAddress {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #60a5fa;
+  position: relative;
+  cursor: help;
+}
+
+.fullWallet {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  background: #0f172a;
+  border: 1px solid #3b82f6;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+  z-index: 10;
+  margin-top: 4px;
+}
+
+.walletAddress:hover .fullWallet {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.balances {
+  display: flex;
+  gap: 20px;
+}
+
+.balances .stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.balances .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+}
+
+.balances .value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.gainMetrics {
+  display: flex;
+  gap: 20px;
+}
+
+.gainMetrics .stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gainMetrics .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+}
+
+.gainMetrics .value {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.progressBar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.barContainer {
+  width: 100%;
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 300ms ease;
+}
+
+.emptyState {
+  padding: 60px 20px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: 16px;
+}
+
+.loadingState,
+.errorState {
+  padding: 60px 20px;
+  text-align: center;
+  font-size: 16px;
+  color: #94a3b8;
+}
+
+.errorState {
+  color: #ef4444;
+}
+
+@media (max-width: 1024px) {
+  .traderItem {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .controlsSection {
+    grid-template-columns: 1fr;
+  }
+
+  .balances,
+  .gainMetrics {
+    flex-wrap: wrap;
+  }
+}

@@ -3,9 +3,17 @@ import asyncio
 from collections import Counter
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timezone
+import os
+from dotenv import load_dotenv
+from pathlib import Path
 
-# --- Settings ---
-MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+# Resolve project root (parent of this file's folder)
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_PATH)
+
+# MongoDB connection details
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
 MILLIONAIRE_COLLECTION = "millionaires"
 BIAS_COLLECTION = "bias_summaries"

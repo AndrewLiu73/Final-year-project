@@ -40,7 +40,7 @@ def report_open_positions(wallet, positions):
 
 if __name__ == "__main__":
     # Read wallets from users.txt
-    with open("data/users.txt") as f:
+    with open("../../../data/users.txt") as f:
         track_list = [line.strip() for line in f if line.strip()]
     min_size_usd = 1_000_000  # $1M threshold
 

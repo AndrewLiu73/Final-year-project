@@ -179,7 +179,7 @@ else:
     buy_to_sell_ratio = 0
 
 # --- Save to trades_with_pnl.json
-file_path = "data/trades_with_pnl.json"
+file_path = "../../../data/trades_with_pnl.json"
 try:
     with open(file_path, "r") as f:
         all_trades = json.load(f)

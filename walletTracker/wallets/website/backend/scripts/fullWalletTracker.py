@@ -18,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('hyperliquid_pnl.log', encoding='utf-8'),
+        logging.FileHandler('../../../hyperliquid_pnl.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -37,7 +37,7 @@ class PnLConfig:
     min_window: timedelta = timedelta(days=1)
     max_retries: int = 5
     save_data: bool = True
-    output_dir: str = "pnl_data"
+    output_dir: str = "../../../pnl_data"
 
 
 @dataclass
@@ -440,7 +440,7 @@ class HyperliquidPnLAnalyzer:
 def main():
     """Main execution function"""
     config = PnLConfig(
-        trader_address="0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+        trader_address="0x80196a7475464e06de641df6c66e6e278cd364d5",
         start_date=datetime(2024, 1, 1),
         end_date=datetime.now(),
         save_data=True

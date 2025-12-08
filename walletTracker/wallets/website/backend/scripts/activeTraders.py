@@ -4,9 +4,17 @@ import logging
 import websockets
 import motor.motor_asyncio
 from datetime import datetime, timezone
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Resolve project root (parent of this file's folder)
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_PATH)
 
 # MongoDB connection details
-MONGO_URI = "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
 MONITOR_COLLECTION = "user_monitor"
