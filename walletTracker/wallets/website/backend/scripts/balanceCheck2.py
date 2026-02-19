@@ -18,8 +18,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_PATH)
 
-
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("UserBalanceFetcher")
 
@@ -27,6 +25,10 @@ MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
 USERS_COLLECTION = "users"
 BALANCES_COLLECTION = "balances"
+
+# 🔹 checkpoint collection + key
+CHECKPOINTS_COLLECTION = "checkpoints"
+BALANCE_CHECKPOINT_ID = "balances_last_index"
 
 MAX_REQUESTS_PER_MINUTE = 55
 CONCURRENT_WORKERS = 10
@@ -53,9 +55,43 @@ class RateLimiter:
             self.tokens -= 1
 
 
+# 🔹 checkpoint helpers
+async def load_checkpoint() -> int:
+    """Return last processed user index, or 0 if none."""
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    db = client[DB_NAME]
+    col = db[CHECKPOINTS_COLLECTION]
+    try:
+        doc = await col.find_one({"_id": BALANCE_CHECKPOINT_ID})
+        return int(doc["last_index"]) if doc and "last_index" in doc else 0
+    finally:
+        client.close()
+
+
+async def save_checkpoint(last_index: int) -> None:
+    """Store last processed user index (inclusive)."""
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    db = client[DB_NAME]
+    col = db[CHECKPOINTS_COLLECTION]
+    try:
+        await col.update_one(
+            {"_id": BALANCE_CHECKPOINT_ID},
+            {
+                "$set": {
+                    "last_index": int(last_index),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
+        )
+        logger.info(f"📌 Checkpoint saved at user index {last_index}")
+    finally:
+        client.close()
+
+
 # ✅ SINGLE fetch_users_from_mongodb
 async def fetch_users_from_mongodb() -> List[Dict]:
-    """Fetch ALL users from users collection (for full refresh)"""
+    """Fetch ALL users from users collection (for full/iterative refresh)."""
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
     users_collection = db[USERS_COLLECTION]
@@ -68,7 +104,7 @@ async def fetch_users_from_mongodb() -> List[Dict]:
         client.close()
 
 
-# ✅ fetch_account_balance_async (was missing)
+# ✅ fetch_account_balance_async
 async def fetch_account_balance_async(info: Info, wallet: str, rate_limiter: RateLimiter) -> tuple:
     await rate_limiter.acquire()
     try:
@@ -86,9 +122,13 @@ async def fetch_account_balance_async(info: Info, wallet: str, rate_limiter: Rat
         return wallet, "0"
 
 
-# ✅ process_user_batch (unchanged)
-async def process_user_batch(users: List[Dict], info: Info, rate_limiter: RateLimiter, balances_collection) -> List[
-    Dict]:
+# ✅ process_user_batch
+async def process_user_batch(
+    users: List[Dict],
+    info: Info,
+    rate_limiter: RateLimiter,
+    balances_collection,
+) -> List[Dict]:
     wallets = [user["user"] for user in users]
     tasks = [fetch_account_balance_async(info, wallet, rate_limiter) for wallet in wallets]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -123,6 +163,15 @@ async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[
     total_users = len(users)
     logger.info(f"Starting balance fetch for {total_users} users")
 
+    # 🔹 load checkpoint
+    start_index = await load_checkpoint()
+    if start_index >= total_users:
+        logger.info("✅ Checkpoint beyond user list, resetting to 0")
+        start_index = 0
+
+    if start_index > 0:
+        logger.info(f"⏩ Resuming from checkpoint at index {start_index}")
+
     api_url = constants.MAINNET_API_URL
     info = Info(api_url, skip_ws=True)
     rate_limiter = RateLimiter(MAX_REQUESTS_PER_MINUTE)
@@ -133,12 +182,16 @@ async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[
 
     all_results = []
     try:
-        for batch_start in range(0, total_users, batch_size):
+        for batch_start in range(start_index, total_users, batch_size):
             batch = users[batch_start:batch_start + batch_size]
             logger.info(f"\n[{batch_start}/{total_users}] Processing batch of {len(batch)} users")
 
             batch_results = await process_user_batch(batch, info, rate_limiter, balances_collection)
             all_results.extend(batch_results)
+
+            # 🔹 save checkpoint after successful batch
+            last_index = batch_start + len(batch) - 1
+            await save_checkpoint(last_index)
 
             await asyncio.sleep(0.1)
     except KeyboardInterrupt:
@@ -149,11 +202,14 @@ async def fetch_all_user_balances(batch_size: int = CONCURRENT_WORKERS) -> List[
         client.close()
 
     logger.info(f"✅ Completed! Processed {len(all_results)} users")
+
+    # Optional: reset checkpoint so next run always starts from 0
+    # await save_checkpoint(0)
+
     return all_results
 
 
-
-# ✅ create_balance_index (unchanged)
+# ✅ create_balance_index
 async def create_balance_index():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
@@ -165,7 +221,7 @@ async def create_balance_index():
         client.close()
 
 
-# ✅ main (fixed)
+# ✅ main
 async def main():
     logger.info("🚀 Starting user balance fetcher")
     await create_balance_index()
@@ -173,7 +229,7 @@ async def main():
     logger.info("🎉 Balance fetching complete!")
 
 
-# ✅ periodic_runner (unchanged)
+# ✅ periodic_runner
 RUN_INTERVAL_SECONDS = 12 * 60 * 60  # 12 hours
 
 
