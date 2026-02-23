@@ -2,18 +2,15 @@
 Tests for profitability scanner calculations
 """
 import pytest
-from datetime import datetime
 from scripts.profitabilityScanner import ProfitabilityScanner
 
 
-class TestDrawdownCalculation:
-    """Test maximum drawdown calculation"""
+class TestDrawdown:
+
 
     @pytest.fixture
     def scanner(self):
         """Create scanner instance for testing"""
-        # We don't need real MongoDB for testing _calculate_drawdown
-        # Pass None as mongo_uri since we're only testing the calculation
         scanner = ProfitabilityScanner.__new__(ProfitabilityScanner)
         return scanner
 

@@ -1,232 +1,446 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { List } from 'react-window';
 import { useProfitableTraders } from '../hooks/useProfitability';
+import { useNavigate } from 'react-router-dom';
 import styles from './profitability.module.css';
 
 export default function ProfitableTradersPage() {
-  const [minGain, setMinGain] = useState(0);
-  const [maxGain, setMaxGain] = useState(1000);
+  const navigate = useNavigate();
+  const [minWinrateInput, setMinWinrateInput] = useState('');
+  const [maxDrawdownInput, setMaxDrawdownInput] = useState('');
+  const [minBalanceInput, setMinBalanceInput] = useState('');
+  const [maxBalanceInput, setMaxBalanceInput] = useState('');
+  const [pageSizeInput, setPageSizeInput] = useState('100');
+  const [activeOnlyInput, setActiveOnlyInput] = useState(false);
+
+  const [appliedFilters, setAppliedFilters] = useState({
+    minWinrate: undefined,
+    maxDrawdown: undefined,
+    minBalance: undefined,
+    maxBalance: undefined,
+    activeOnly: false,
+  });
+
+  const [pageSize, setPageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('gainPercent'); // 'gainPercent' or 'gainDollar'
 
-  const { traders, loading, error } = useProfitableTraders(minGain, maxGain);
+  // Server-side sort state
+  const [sortBy, setSortBy] = useState('pnl');
+  const [sortDirection, setSortDirection] = useState('desc');
 
-  // Filter by search query
+  const {
+    traders,
+    loading,
+    initialLoading,
+    error,
+    pagination,
+    loadMore,
+    hasMore
+  } = useProfitableTraders(appliedFilters, pageSize, sortBy, sortDirection);
+
+  const handleApplyFilters = () => {
+    setAppliedFilters({
+      minWinrate: minWinrateInput ? parseFloat(minWinrateInput) : undefined,
+      maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
+      minBalance: minBalanceInput ? parseFloat(minBalanceInput) : undefined,
+      maxBalance: maxBalanceInput ? parseFloat(maxBalanceInput) : undefined,
+      activeOnly: activeOnlyInput,
+    });
+
+    const newPageSize = parseInt(pageSizeInput) || 100;
+    setPageSize(Math.min(Math.max(newPageSize, 10), 200));
+  };
+
+  const handleClearFilters = () => {
+    setMinWinrateInput('');
+    setMaxDrawdownInput('');
+    setMinBalanceInput('');
+    setMaxBalanceInput('');
+    setPageSizeInput('100');
+    setActiveOnlyInput(false);
+    setAppliedFilters({
+      minWinrate: undefined,
+      maxDrawdown: undefined,
+      minBalance: undefined,
+      maxBalance: undefined,
+      activeOnly: false,
+    });
+    setPageSize(100);
+  };
+
+  const hasUnappliedChanges = useMemo(() => {
+    const currentInputs = {
+      minWinrate: minWinrateInput ? parseFloat(minWinrateInput) : undefined,
+      maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
+      minBalance: minBalanceInput ? parseFloat(minBalanceInput) : undefined,
+      maxBalance: maxBalanceInput ? parseFloat(maxBalanceInput) : undefined,
+      activeOnly: activeOnlyInput,
+    };
+
+    const inputPageSize = parseInt(pageSizeInput) || 100;
+    const pageSizeChanged = inputPageSize !== pageSize;
+
+    return JSON.stringify(currentInputs) !== JSON.stringify(appliedFilters) || pageSizeChanged;
+  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, activeOnlyInput, pageSizeInput, appliedFilters, pageSize]);
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortDirection('desc');
+    }
+  };
+
+  const formatBalance = (balance) => {
+    if (!balance || balance === 0) return '$0';
+    if (Math.abs(balance) < 1000) {
+      return `$${Math.floor(balance)}`;
+    }
+    return `$${(balance / 1000).toFixed(1)}k`;
+  };
+
+  const handleWalletClick = (wallet) => {
+    navigate(`/trader/${wallet}`);
+  };
+
   const filteredTraders = useMemo(() => {
+    if (!searchQuery) return traders;
     return traders.filter(trader =>
       trader.wallet.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [traders, searchQuery]);
 
-  // Sort traders
-  const sortedTraders = useMemo(() => {
-    const sorted = [...filteredTraders];
-    if (sortBy === 'gainPercent') {
-      sorted.sort((a, b) => b.gainPercent - a.gainPercent);
-    } else if (sortBy === 'gainDollar') {
-      sorted.sort((a, b) => b.gainDollar - a.gainDollar);
-    }
-    return sorted;
-  }, [filteredTraders, sortBy]);
-
-  // Row component for virtualization
-  const TraderRow = ({ index, style }) => {
-    const trader = sortedTraders[index];
-    const profitColor = trader.isProfitable ? '#22c55e' : '#ef4444';
-
-    return (
-      <div style={style} className={styles.traderItem}>
-        <div className={styles.walletAddress}>
-          {trader.wallet.slice(0, 6)}...{trader.wallet.slice(-4)}
-          <span className={styles.fullWallet} title={trader.wallet}>
-            {trader.wallet}
-          </span>
-        </div>
-
-        <div className={styles.balances}>
-          <div className={styles.stat}>
-            <span className={styles.label}>Initial</span>
-            <span className={styles.value}>${trader.initialBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.label}>Current</span>
-            <span className={styles.value}>${trader.currentBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
-          </div>
-        </div>
-
-        <div className={styles.gainMetrics}>
-          <div className={styles.stat}>
-            <span className={styles.label}>Gain $</span>
-            <span className={styles.value} style={{ color: profitColor }}>
-              ${trader.gainDollar.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.label}>Gain %</span>
-            <span className={styles.value} style={{ color: profitColor }}>
-              {trader.gainPercent.toFixed(2)}%
-            </span>
-          </div>
-        </div>
-
-        <div className={styles.progressBar}>
-          <div className={styles.barContainer}>
-            <div
-              className={styles.barFill}
-              style={{
-                width: `${Math.min(Math.abs(trader.gainPercent), 100)}%`,
-                background: profitColor,
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Stats
   const stats = useMemo(() => {
-    const profitableCount = sortedTraders.filter(t => t.isProfitable).length;
-    const totalGain = sortedTraders.reduce((sum, t) => sum + t.gainDollar, 0);
-    const avgGain = sortedTraders.length > 0 ? totalGain / sortedTraders.length : 0;
+    const profitableCount = filteredTraders.filter(t => t.isProfitable).length;
+    const totalGain = filteredTraders.reduce((sum, t) => sum + t.gainDollar, 0);
+    const avgGain = filteredTraders.length > 0 ? totalGain / filteredTraders.length : 0;
+    const avgWinrate = filteredTraders.length > 0
+      ? filteredTraders.reduce((sum, t) => sum + (t.winrate || 0), 0) / filteredTraders.length
+      : 0;
 
     return {
-      total: sortedTraders.length,
+      loaded: traders.length,
+      total: pagination.total_count,
+      displayed: filteredTraders.length,
       profitable: profitableCount,
       totalGain,
       avgGain,
+      avgWinrate,
     };
-  }, [sortedTraders]);
+  }, [filteredTraders, traders.length, pagination]);
 
-  if (loading) {
+  const SortIndicator = ({ column }) => {
+    if (sortBy !== column) return null;
     return (
-      <div className={styles.container}>
-        <div className={styles.loadingState}>Loading traders...</div>
+      <span className={styles.sortIndicator}>
+        {sortDirection === 'asc' ? '↑' : '↓'}
+      </span>
+    );
+  };
+
+  if (initialLoading) {
+    return (
+      <div className={styles.discordContainer}>
+        <div className={styles.loadingState}>
+          <div className={styles.spinner}></div>
+          <p>Loading traders...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className={styles.container}>
-        <div className={styles.errorState}>Error: {error}</div>
+      <div className={styles.discordContainer}>
+        <div className={styles.errorState}>
+          <p>❌ Error: {error}</p>
+          <button onClick={() => window.location.reload()}>Retry</button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <h1>Profitable Traders Filter</h1>
-        <p>Filter traders by gain percentage — calculated dynamically without precalculation</p>
-      </div>
+    <div className={styles.discordContainer}>
+      <div className={styles.sidebar}>
+        <div className={styles.sidebarHeader}>
+          <h2>Filters</h2>
+          <span className={styles.badge}>{stats.total}</span>
+        </div>
 
-      <div className={styles.controlsSection}>
-        {/* Gain Range Sliders */}
-        <div className={styles.filterBlock}>
-          <h3>Gain Range Filter</h3>
-          <div className={styles.sliderGroup}>
-            <div className={styles.controlGroup}>
-              <label>Minimum Gain (%)</label>
-              <div className={styles.sliderContainer}>
+        <div className={styles.filterSection}>
+          <label className={styles.toggleLabel}>
+            <div className={styles.toggleHeader}>
+              <span className={styles.labelText}>Active Traders Only</span>
+              <div className={styles.toggleSwitch}>
                 <input
-                  type="range"
-                  min="-100"
-                  max="1000"
-                  value={minGain}
-                  onChange={(e) => setMinGain(Math.min(Number(e.target.value), maxGain))}
-                  step="5"
-                  className={styles.slider}
+                  type="checkbox"
+                  checked={activeOnlyInput}
+                  onChange={(e) => setActiveOnlyInput(e.target.checked)}
+                  className={styles.toggleInput}
                 />
-                <span className={styles.valueLabel}>{minGain}%</span>
+                <span className={styles.toggleSlider}></span>
               </div>
             </div>
+            <span className={styles.helperText}>Balance &gt; $0</span>
+          </label>
 
-            <div className={styles.controlGroup}>
-              <label>Maximum Gain (%)</label>
-              <div className={styles.sliderContainer}>
-                <input
-                  type="range"
-                  min="-100"
-                  max="1000"
-                  value={maxGain}
-                  onChange={(e) => setMaxGain(Math.max(Number(e.target.value), minGain))}
-                  step="5"
-                  className={styles.slider}
-                />
-                <span className={styles.valueLabel}>{maxGain}%</span>
-              </div>
-            </div>
+          <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Min Winrate %</span>
+            <input
+              type="number"
+              placeholder="e.g. 60"
+              value={minWinrateInput}
+              onChange={(e) => setMinWinrateInput(e.target.value)}
+              className={styles.discordInput}
+              min="0"
+              max="100"
+              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+            />
+          </label>
+
+          <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Max Drawdown %</span>
+            <input
+              type="number"
+              placeholder="e.g. 20"
+              value={maxDrawdownInput}
+              onChange={(e) => setMaxDrawdownInput(e.target.value)}
+              className={styles.discordInput}
+              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+            />
+            <span className={styles.helperText}>Lower is better</span>
+          </label>
+
+          <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Min Balance $</span>
+            <input
+              type="number"
+              placeholder="e.g. 1000"
+              value={minBalanceInput}
+              onChange={(e) => setMinBalanceInput(e.target.value)}
+              className={styles.discordInput}
+              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+            />
+          </label>
+
+          <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Max Balance $</span>
+            <input
+              type="number"
+              placeholder="e.g. 50000"
+              value={maxBalanceInput}
+              onChange={(e) => setMaxBalanceInput(e.target.value)}
+              className={styles.discordInput}
+              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+            />
+          </label>
+
+          <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Traders Per Page</span>
+            <select
+              value={pageSizeInput}
+              onChange={(e) => setPageSizeInput(e.target.value)}
+              className={styles.discordSelect}
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="150">150</option>
+              <option value="200">200</option>
+            </select>
+            <span className={styles.helperText}>How many to load at once</span>
+          </label>
+
+          <div className={styles.filterActions}>
+            <button
+              onClick={handleApplyFilters}
+              className={`${styles.applyButton} ${hasUnappliedChanges ? styles.applyButtonActive : ''}`}
+              disabled={!hasUnappliedChanges}
+            >
+              {hasUnappliedChanges ? '🔍 Apply Filters' : '✓ Filters Applied'}
+            </button>
+            <button
+              onClick={handleClearFilters}
+              className={styles.clearButton}
+            >
+              Clear All
+            </button>
           </div>
         </div>
 
-        {/* Search & Sort */}
-        <div className={styles.filterBlock}>
-          <h3>Search & Sort</h3>
-          <div className={styles.searchGroup}>
+        <div className={styles.statsPanel}>
+          <div className={styles.statItem}>
+            <span className={styles.statLabel}>Loaded</span>
+            <span className={styles.statValue}>{stats.loaded.toLocaleString()}</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statLabel}>Profitable</span>
+            <span className={styles.statValueGreen}>{stats.profitable.toLocaleString()}</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statLabel}>Avg Gain</span>
+            <span className={styles.statValue}>${stats.avgGain.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statLabel}>Avg WR</span>
+            <span className={styles.statValue}>{stats.avgWinrate.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.mainContent}>
+        <div className={styles.channelHeader}>
+          <div className={styles.channelInfo}>
+            <span className={styles.channelIcon}>#</span>
+            <h1 className={styles.channelName}>profitable-traders</h1>
+            <span className={styles.channelCount}>{stats.displayed} traders</span>
+          </div>
+          <div className={styles.searchBar}>
             <input
               type="text"
-              placeholder="Search by wallet address..."
+              placeholder="Search wallets..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={styles.searchInput}
             />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className={styles.sortSelect}
+          </div>
+        </div>
+
+        <div className={styles.tableContainer}>
+          <div className={styles.tableHeader}>
+            <div className={styles.colWallet}>Wallet</div>
+            <div
+              className={`${styles.colBalance} ${styles.sortable}`}
+              onClick={() => handleSort('balance')}
             >
-              <option value="gainPercent">Sort by Gain %</option>
-              <option value="gainDollar">Sort by Gain $</option>
-            </select>
+              Balance <SortIndicator column="balance" />
+            </div>
+            <div
+              className={`${styles.colPnl} ${styles.sortable}`}
+              onClick={() => handleSort('pnl')}
+            >
+              All-Time PnL <SortIndicator column="pnl" />
+            </div>
+            <div
+              className={`${styles.colOpenTrades} ${styles.sortable}`}
+              onClick={() => handleSort('openTrades')}
+            >
+              Open Trades <SortIndicator column="openTrades" />
+            </div>
+            <div
+              className={`${styles.colWinrate} ${styles.sortable}`}
+              onClick={() => handleSort('winrate')}
+            >
+              Winrate <SortIndicator column="winrate" />
+            </div>
+            <div
+              className={`${styles.colDrawdown} ${styles.sortable}`}
+              onClick={() => handleSort('drawdown')}
+            >
+              Max DD <SortIndicator column="drawdown" />
+            </div>
+          </div>
+
+          <div className={styles.tableBody}>
+            {filteredTraders.length > 0 ? (
+              <>
+                {filteredTraders.map((trader, index) => {
+                  const profitColor = trader.isProfitable ? '#3ba55d' : '#ed4245';
+
+                  return (
+                    <div key={`${trader.wallet}-${index}`} className={styles.tableRow}>
+                      <div className={styles.colWallet}>
+                        <div className={styles.walletCell}>
+                          <div
+                            className={styles.statusDot}
+                            style={{ background: profitColor }}
+                          />
+                          <span
+                            className={styles.walletText}
+                            title={trader.wallet}
+                            onClick={() => handleWalletClick(trader.wallet)}
+                          >
+                            {trader.wallet.slice(0, 6)}...{trader.wallet.slice(-4)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={styles.colBalance}>
+                        <span className={styles.valueText}>
+                          {formatBalance(trader.currentBalance)}
+                        </span>
+                      </div>
+
+                      <div className={styles.colPnl}>
+                        <div className={styles.pnlCell}>
+                          <span
+                            className={styles.pnlValue}
+                            style={{ color: profitColor }}
+                          >
+                            {trader.gainDollar > 0 ? '+' : ''}{formatBalance(Math.abs(trader.gainDollar))}
+                          </span>
+                          <span className={styles.pnlPercent} style={{ color: profitColor }}>
+                            ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent.toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={styles.colOpenTrades}>
+                        <span className={styles.valueText}>
+                          {trader.openPositionsCount || 0}
+                        </span>
+                      </div>
+
+                      <div className={styles.colWinrate}>
+                        <span className={styles.valueText}>
+                          {trader.winrate ? `${trader.winrate.toFixed(1)}%` : '-'}
+                        </span>
+                      </div>
+
+                      <div className={styles.colDrawdown}>
+                        <span className={styles.valueText}>
+                          {trader.maxDrawdown ? `${trader.maxDrawdown.toFixed(1)}%` : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {hasMore && (
+                  <div className={styles.loadMoreRow}>
+                    <button
+                      onClick={loadMore}
+                      disabled={loading}
+                      className={styles.loadMoreBtn}
+                    >
+                      {loading ? (
+                        <>
+                          <div className={styles.smallSpinner}></div>
+                          Loading...
+                        </>
+                      ) : (
+                        `Load More (${(pagination.total_count - stats.loaded).toLocaleString()} remaining)`
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {!hasMore && stats.loaded > 0 && (
+                  <div className={styles.endMessage}>
+                    End of results • {stats.total.toLocaleString()} traders
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className={styles.emptyState}>
+                <p>No traders match your filters</p>
+              </div>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className={styles.statsSection}>
-        <div className={styles.stat}>
-          <span className={styles.statLabel}>Total Traders</span>
-          <span className={styles.statValue}>{stats.total.toLocaleString()}</span>
-        </div>
-        <div className={styles.stat}>
-          <span className={styles.statLabel}>Profitable</span>
-          <span className={styles.statValue} style={{ color: '#22c55e' }}>
-            {stats.profitable.toLocaleString()}
-          </span>
-        </div>
-        <div className={styles.stat}>
-          <span className={styles.statLabel}>Total Gain</span>
-          <span className={styles.statValue} style={{ color: '#22c55e' }}>
-            ${stats.totalGain.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-          </span>
-        </div>
-        <div className={styles.stat}>
-          <span className={styles.statLabel}>Avg Gain</span>
-          <span className={styles.statValue}>
-            ${stats.avgGain.toLocaleString('en-US', { maximumFractionDigits: 2 })}
-          </span>
-        </div>
-      </div>
-
-      {/* Traders List */}
-      <div className={styles.listSection}>
-        {sortedTraders.length > 0 ? (
-          <List
-            height={600}
-            itemCount={sortedTraders.length}
-            itemSize={85}
-            width="100%"
-          >
-            {TraderRow}
-          </List>
-        ) : (
-          <div className={styles.emptyState}>
-            <p>No traders match your criteria</p>
-          </div>
-        )}
       </div>
     </div>
   );
