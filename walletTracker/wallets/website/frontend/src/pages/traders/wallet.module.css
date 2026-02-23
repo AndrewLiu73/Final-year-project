@@ -1,0 +1,274 @@
+.container {
+  min-height: 100vh;
+  background: #36393f;
+  color: #dcddde;
+  padding: 20px;
+  font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 30px;
+  padding: 20px;
+  background: #2f3136;
+  border-radius: 8px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.walletInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.walletAddress {
+  font-size: 24px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', monospace;
+  word-break: break-all;
+}
+
+.backButton {
+  background: #5865f2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.backButton:hover {
+  background: #4752c4;
+}
+
+.copyButton {
+  background: #4f545c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  white-space: nowrap;
+}
+
+.copyButton:hover {
+  background: #5c6169;
+}
+
+.statusBadge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 13px;
+  color: white;
+  text-transform: uppercase;
+}
+
+/* Grid Layout */
+.gridContainer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 20px;
+}
+
+/* Cards */
+.card {
+  background: #2f3136;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.cardWide {
+  background: #2f3136;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  grid-column: 1 / -1;
+}
+
+.cardTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 20px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid #5865f2;
+  padding-bottom: 10px;
+}
+
+/* Metrics */
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metricLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #96989d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metricValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: #dcddde;
+}
+
+.metricValueGreen {
+  font-size: 20px;
+  font-weight: 700;
+  color: #3ba55d;
+}
+
+.metricValueRed {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ed4245;
+}
+
+/* Open Positions */
+.positionsTable {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.positionCard {
+  background: #36393f;
+  border-radius: 6px;
+  padding: 16px;
+  border: 1px solid #202225;
+}
+
+.positionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #202225;
+}
+
+.positionCoin {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.positionSide {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.positionDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.positionMetric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.positionMetric span:first-child {
+  color: #96989d;
+  font-weight: 600;
+}
+
+.positionMetric span:last-child {
+  color: #dcddde;
+  font-weight: 600;
+}
+
+/* Loading & Error States */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 20px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #202225;
+  border-top: 4px solid #5865f2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.errorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 20px;
+  text-align: center;
+}
+
+.errorState h2 {
+  font-size: 32px;
+  margin: 0;
+}
+
+.errorState p {
+  font-size: 16px;
+  color: #96989d;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .gridContainer {
+    grid-template-columns: 1fr;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .walletAddress {
+    font-size: 18px;
+  }
+
+  .metricGrid {
+    grid-template-columns: 1fr;
+  }
+}

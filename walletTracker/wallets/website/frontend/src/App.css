@@ -1,93 +1,70 @@
-/* App.css */
-body {
-  background: #1a202c;
-  color: #eee;
-  font-family: 'Inter', Arial, sans-serif;
+/* Root Container */
+.app-container {
+  padding: 20px;
+  background: #0f172a;
+  min-height: 100vh;
+  color: white;
 }
 
-h1, h2 {
-  color: #f6ad55;
-  margin-top: 24px;
-  margin-bottom: 16px;
+/* Header Section */
+.header-container {
+  margin-bottom: 30px;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 20px;
 }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
-  background: #2d3748;
-  margin-bottom: 32px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.07);
-}
-
-th, td {
-  border: 1px solid #4a5568;
-  padding: 12px 8px;
-  text-align: center;
-}
-
-th {
-  background: #4a5568;
-  color: #f6ad55;
+.main-title {
+  margin-bottom: 20px;
+  color: #60a5fa;
+  font-size: 32px;
   font-weight: bold;
 }
 
-td {
-  color: #f7fafc;
+/* Navigation Buttons */
+.nav-buttons {
+  display: flex;
+  gap: 10px;
 }
 
-tr:nth-child(even) {
-  background: #232b38;
+.nav-button {
+  padding: 10px 20px;
+  background: #1e293b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  font-size: 14px;
 }
 
-tr:hover {
-  background: #718096;
-  color: #20232a;
+.nav-button:hover {
+  background: #334155;
+  transform: translateY(-1px);
 }
 
-div {
-  border-radius: 7px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
-  margin-bottom: 2rem;
-  padding: 1rem;
+.nav-button.active {
+  background: #3b82f6;
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
 }
-.bias-summary-wrap {
-  background: #232b38;
-  border-radius: 10px;
-  box-shadow: 0 0 12px rgba(0,0,0,0.12);
-  padding: 1rem;
-  margin-bottom: 1rem;
-  min-width: 300px;
-  max-width: 400px;
-}
-.bias-table th {
-  background: #4a5568;
-  color: #ecc94b;
-}
-.bias-table {
-  width: 100%;
-  border-collapse: collapse;
+
+/* Content Container */
+.content-container {
+  max-width: 100%;
   margin: 0 auto;
 }
-.bias-table td, .bias-table th {
-  border: 1px solid #2d3748;
-  padding: 0.5rem;
-  text-align: center;
-}
-.bias-table tr:nth-child(even) { background: #2d3748; }
 
-button {
-  background: #191b22;
-  color: #ecc94b;
-  border: none;
-  margin: 3px 5px 3px 0;
-  padding: 5px 12px;
-  border-radius: 5px;
-  font-weight: bold;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-button:hover, button:active {
-  background: #ecc94b;
-  color: #191b22;
+/* Responsive Design */
+@media (max-width: 768px) {
+  .app-container {
+    padding: 10px;
+  }
+
+  .nav-buttons {
+    flex-direction: column;
+  }
+
+  .nav-button {
+    width: 100%;
+  }
 }

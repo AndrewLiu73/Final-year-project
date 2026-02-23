@@ -28,14 +28,14 @@ def remove_duplicate_users():
     # Find all duplicate wallet addresses
     pipeline = [
         {"$group": {
-            "_id": "$user",
+            "_id": "$wallet_address",
             "count": {"$sum": 1},
             "docs": {"$push": "$_id"}
         }},
         {"$match": {"count": {"$gt": 1}}}
     ]
 
-    duplicates = list(db.users.aggregate(pipeline))
+    duplicates = list(db.profitability_metrics.aggregate(pipeline))
 
     if not duplicates:
         print("\n✓ No duplicates found! Collection is clean.")

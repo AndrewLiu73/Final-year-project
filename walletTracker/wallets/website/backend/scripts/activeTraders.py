@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # backend/.. = website/
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_PATH)
 
+
 # MongoDB connection details
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "hyperliquid"
