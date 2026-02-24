@@ -2,45 +2,19 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 
-// Components
-import BiasHistoryChart from './components/biasHistoryChart';
-import PositionBar from './components/positionBar';
+import BiasHistoryChart      from './components/biasHistoryChart';
+import PositionBar           from './components/positionBar';
 import ProfitableTradersPage from './pages/profitability';
-import TraderDetailPage from './pages/TraderDetail';
+import TraderDetailPage      from './pages/TraderDetail';
+import OITabs                from './components/OITabs';
 
-// --- Helper Component ---
-function BiasSummaryDisplay({ biasSummaries }) {
-  if (!biasSummaries.length) return <p>Loading market bias...</p>;
-  return (
-    <div>
-      <h2>Aggregate Market Bias (Recent Samples)</h2>
-      {biasSummaries.map((summary, idx) => (
-        <div key={idx} style={{marginBottom: '2rem'}}>
-          <h3 style={{color:'#ecc94b', marginBottom: '6px'}}>Sample {idx + 1}</h3>
-          {Object.entries(summary).map(([coin, stats]) => (
-            <PositionBar
-              key={coin}
-              coin={coin}
-              position={`$${((stats.long + stats.short)/1e9).toFixed(2)}B`}
-              long={`$${(stats.long/1e9).toFixed(2)}B`}
-              long_pct={stats.long_pct?.toFixed(2)}
-              short={`$${(stats.short/1e9).toFixed(2)}B`}
-              short_pct={stats.short_pct?.toFixed(2)}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// --- NAVIGATION HEADER COMPONENT ---
+// --- Navigation Header ---
 function NavigationHeader() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isMarketView = location.pathname === '/';
-  const isTradersView = location.pathname.startsWith('/traders') || location.pathname.startsWith('/trader/');
+  const isMarket  = location.pathname === '/';
+  const isTraders = location.pathname.startsWith('/traders') || location.pathname.startsWith('/trader/');
 
   return (
     <div className="header-container">
@@ -48,92 +22,227 @@ function NavigationHeader() {
       <div className="nav-buttons">
         <button
           onClick={() => navigate('/')}
-          className={`nav-button ${isMarketView ? 'active' : ''}`}
+          className={`nav-button ${isMarket ? 'active' : ''}`}
         >
-          📈 Market Overview
+          Market Overview
         </button>
         <button
           onClick={() => navigate('/traders')}
-          className={`nav-button ${isTradersView ? 'active' : ''}`}
+          className={`nav-button ${isTraders ? 'active' : ''}`}
         >
-          💰 Profitable Traders
+          Profitable Traders
         </button>
       </div>
     </div>
   );
 }
 
-// --- MARKET VIEW COMPONENT ---
+// --- Market View ---
 function MarketView() {
   const [biasSummaries, setBiasSummaries] = useState([]);
-  const [period, setPeriod] = useState(90);
+  const [loading,       setLoading]       = useState(true);
+  const [period,        setPeriod]        = useState(30);
+  const [selectedCoin,  setSelectedCoin]  = useState('ALL');
+  const [chartType,     setChartType]     = useState('LONG');
 
   useEffect(() => {
+    setLoading(true);
     fetch("http://localhost:8000/api/bias-aggregate")
       .then(res => res.json())
-      .then(setBiasSummaries)
-      .catch(err => console.error("Error fetching bias:", err));
+      .then(data => { setBiasSummaries(data); setLoading(false); })
+      .catch(err  => { console.error(err);    setLoading(false); });
   }, []);
 
-  console.log("Current biasSummaries state:", biasSummaries);
-  console.log("biasSummaries.length:", biasSummaries?.length);
-
-
-  const now = new Date();
+  const now      = new Date();
   const filtered = biasSummaries.filter(item => {
     if (!item.timestamp) return false;
-    const sampleDate = new Date(item.timestamp);
-    const daysAgo = (now - sampleDate) / (1000 * 60 * 60 * 24);
-    return daysAgo <= period;
+    return (now - new Date(item.timestamp)) / 86400000 <= period;
   });
 
-  const latestSample = filtered.length > 0 ? filtered[filtered.length - 1] : null;
+  const latest    = filtered.length > 0 ? filtered[filtered.length - 1] : null;
+  const aggregate = latest?.aggregate ?? {};
+  const coins     = Object.entries(aggregate);
+
+  const totalLong  = coins.reduce((s, [, v]) => s + (v.long  || 0), 0);
+  const totalShort = coins.reduce((s, [, v]) => s + (v.short || 0), 0);
+  const totalOI    = totalLong + totalShort;
+  const netBiasPct = totalOI > 0 ? ((totalLong - totalShort) / totalOI * 100).toFixed(1) : '—';
+  const biasColor  = parseFloat(netBiasPct) > 0 ? 'var(--green-d)' : 'var(--red)';
+
+  const periodBtns = [
+    { label: '7D',  value: 7  },
+    { label: '30D', value: 30 },
+    { label: '90D', value: 90 },
+  ];
+
+  const coinBtns = [
+    { label: 'All', value: 'ALL'  },
+    { label: 'BTC', value: 'BTC'  },
+    { label: 'ETH', value: 'ETH'  },
+    { label: 'HYPE',value: 'HYPE' },
+  ];
+
+  const typeBtns = [
+    { label: 'Long %',  value: 'LONG'  },
+    { label: 'Short %', value: 'SHORT' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="market-loading">
+        <div className="spinner-sm"></div>
+        Loading market data...
+      </div>
+    );
+  }
 
   return (
     <div>
-      {latestSample && (
-        <div style={{ marginBottom: "30px" }}>
-          <h2>Latest Market Bias</h2>
-          <div style={{color: "#cbd5e0", fontSize: 13, marginBottom: 8}}>
-            {new Date(latestSample.timestamp).toLocaleString()}
+
+      {/* Hero stats */}
+      {latest && (
+        <div className="market-hero">
+          <div className="market-stat-card">
+            <span className="market-stat-label">Cohort Exposure</span>
+            <span className="market-stat-value">${(totalOI / 1e9).toFixed(2)}B</span>
           </div>
-          {Object.entries(latestSample.aggregate).map(([coin, stats]) => (
+          <div className="market-stat-card">
+            <span className="market-stat-label">Cohort Long</span>
+            <span className="market-stat-value" style={{ color: 'var(--green-d)' }}>
+              ${(totalLong / 1e9).toFixed(2)}B
+            </span>
+          </div>
+          <div className="market-stat-card">
+            <span className="market-stat-label">Cohort Short</span>
+            <span className="market-stat-value" style={{ color: 'var(--red)' }}>
+              ${(totalShort / 1e9).toFixed(2)}B
+            </span>
+          </div>
+          <div className="market-stat-card">
+            <span className="market-stat-label">Net Bias</span>
+            <span className="market-stat-value" style={{ color: biasColor }}>
+              {netBiasPct}%
+            </span>
+          </div>
+          <div className="market-stat-card">
+            <span className="market-stat-label">Assets Tracked</span>
+            <span className="market-stat-value">{coins.length}</span>
+          </div>
+        </div>
+      )}
+
+      {/* OI Tabs */}
+      <div className="section-card">
+        <div className="section-title">
+          Open Interest
+          {latest && (
+            <span className="section-timestamp">
+              Cohort data: {new Date(latest.timestamp).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <OITabs aggregate={aggregate} />
+      </div>
+
+      {/* Bias History */}
+      <div className="section-card">
+        <div className="section-title">Bias History</div>
+
+        {/* All controls in one row */}
+        <div style={{
+          display:      'flex',
+          flexWrap:     'wrap',
+          alignItems:   'center',
+          gap:          '6px',
+          marginBottom: '20px',
+        }}>
+
+          {/* Period */}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {periodBtns.map(b => (
+              <button
+                key={b.value}
+                className={`period-btn ${period === b.value ? 'active' : ''}`}
+                onClick={() => setPeriod(b.value)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: '#202225', margin: '0 4px' }} />
+
+          {/* Coin */}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {coinBtns.map(b => (
+              <button
+                key={b.value}
+                className={`period-btn ${selectedCoin === b.value ? 'active' : ''}`}
+                onClick={() => setSelectedCoin(b.value)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '24px', background: '#202225', margin: '0 4px' }} />
+
+          {/* Long / Short */}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {typeBtns.map(b => (
+              <button
+                key={b.value}
+                className={`period-btn ${chartType === b.value ? 'active' : ''}`}
+                onClick={() => setChartType(b.value)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+
+        </div>
+
+        <BiasHistoryChart
+          biasSummaries={filtered}
+          period={period}
+          selectedCoin={selectedCoin}
+          type={chartType}
+        />
+      </div>
+
+      {/* Asset breakdown */}
+      {latest && (
+        <div className="section-card">
+          <div className="section-title">Asset Breakdown</div>
+          {coins.map(([coin, stats]) => (
             <PositionBar
               key={coin}
               coin={coin}
-              position={`$${((stats.long + stats.short)/1e9).toFixed(2)}B`}
-              long={`$${(stats.long/1e9).toFixed(2)}B`}
+              position={`$${((stats.long + stats.short) / 1e9).toFixed(2)}B`}
+              long={`$${(stats.long / 1e9).toFixed(2)}B`}
               long_pct={stats.long_pct?.toFixed(2)}
-              short={`$${(stats.short/1e9).toFixed(2)}B`}
+              short={`$${(stats.short / 1e9).toFixed(2)}B`}
               short_pct={stats.short_pct?.toFixed(2)}
             />
           ))}
         </div>
       )}
 
-      <div style={{ margin: "20px 0" }}>
-        <span style={{ marginRight: 10, color: "#94a3b8" }}>History:</span>
-        <button onClick={() => setPeriod(7)} style={{marginRight:5}}>7 Days</button>
-        <button onClick={() => setPeriod(30)} style={{marginRight:5}}>30 Days</button>
-        <button onClick={() => setPeriod(90)}>90 Days</button>
-      </div>
-
-      <BiasHistoryChart biasSummaries={filtered.map(item => item.aggregate)} />
-      <BiasSummaryDisplay biasSummaries={filtered.map(item => item.aggregate)} />
     </div>
   );
 }
 
-// --- MAIN APP WITH ROUTING ---
+// --- App Shell ---
 function AppContent() {
   return (
     <div className="app-container">
       <NavigationHeader />
-
       <div className="content-container">
         <Routes>
-          <Route path="/" element={<MarketView />} />
-          <Route path="/traders" element={<ProfitableTradersPage />} />
+          <Route path="/"               element={<MarketView />} />
+          <Route path="/traders"        element={<ProfitableTradersPage />} />
           <Route path="/trader/:wallet" element={<TraderDetailPage />} />
         </Routes>
       </div>

@@ -14,6 +14,7 @@ BIAS_SUMMARIES_COLLECTION = "bias_summaries"
 USERS_COLLECTION = "users"
 BALANCES_COLLECTION = "balances"
 PROFITABILITY_METRICS_COLLECTION = "profitability_metrics"
+EXCHANGES_OI_COLLECTION = "exchange_oi"
 
 app = FastAPI()
 
@@ -265,36 +266,42 @@ async def get_trader_details(wallet_address: str) -> Dict:
     avg_profit_per_trade = total_pnl / trade_count if trade_count > 0 else 0
 
     return {
-        "wallet_address":      wallet_address,
-        "account_value":       account_val,
+        "wallet_address": wallet_address,
+        "account_value": account_val,
         "withdrawable_balance": trader.get("withdrawable_balance", 0),
 
         # pnl
-        "total_pnl":           total_pnl,
-        "realized_pnl":        trader.get("realized_pnl_usdc",   0),
-        "unrealized_pnl":      trader.get("unrealized_pnl_usdc", 0),
-        "profit_percentage":   trader.get("profit_percentage",   0),
+        "total_pnl": total_pnl,
+        "realized_pnl": trader.get("realized_pnl_usdc", 0),
+        "unrealized_pnl": trader.get("unrealized_pnl_usdc", 0),
+        "profit_percentage": trader.get("profit_percentage", 0),
 
-        # trade history - accurate, from full fill scan
-        "win_rate_percentage":     trader.get("win_rate_percentage",     0),
-        "trade_count":             trade_count,
-        "winning_trades":          winning_trades,
-        "losing_trades":           losing_trades,
-        "win_loss_ratio":          round(win_loss_ratio, 2),
-        "avg_profit_per_trade":    round(avg_profit_per_trade, 2),
+        # trade history
+        "win_rate_percentage": trader.get("win_rate_percentage", 0),
+        "trade_count": trade_count,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "win_loss_ratio": round(win_loss_ratio, 2),
+        "avg_profit_per_trade": round(avg_profit_per_trade, 2),
         "max_drawdown_percentage": trader.get("max_drawdown_percentage", 0),
 
         # volume
-        "total_volume_usdc":   trader.get("total_volume_usdc",   0),
+        "total_volume_usdc": trader.get("total_volume_usdc", 0),
         "avg_trade_size_usdc": trader.get("avg_trade_size_usdc", 0),
 
-        # positions - may be stale, live endpoint overwrites these
-        "open_positions":       trader.get("open_positions",       []),
+        # positions
+        "open_positions": trader.get("open_positions", []),
         "open_positions_count": trader.get("open_positions_count", 0),
 
+        # account role — ADD THESE
+        "user_role": trader.get("user_role", "unknown"),
+        "master_wallet": trader.get("master_wallet", None),
+        "sub_accounts": trader.get("sub_accounts", []),
+        "sub_account_count": trader.get("sub_account_count", 0),
+
         "has_trading_activity": trader.get("has_trading_activity", False),
-        "last_updated":         trader.get("last_updated",         None),
-        "data_source":          "cached"
+        "last_updated": trader.get("last_updated", None),
+        "data_source": "cached"
     }
 
 
@@ -386,3 +393,21 @@ async def get_trader_live_data(wallet_address: str) -> Dict:
 
     except Exception as e:
         return {"error": str(e), "wallet_address": wallet_address}
+
+@app.get("/api/exchange-oi")
+async def get_exchange_oi():
+    pipeline = [
+        {"$sort": {"timestamp": -1}},
+        {
+            "$group": {
+                "_id": {"coin": "$coin", "exchange": "$exchange"},
+                "doc": {"$first": "$$ROOT"}
+            }
+        },
+        {"$replaceRoot": {"newRoot": "$doc"}}
+    ]
+    oi_coll = app.mongodb[EXCHANGES_OI_COLLECTION]
+
+    for oi_coll in oi_coll :
+        oi_coll ["_id"] = str(oi_coll ["_id"])
+    return oi_coll

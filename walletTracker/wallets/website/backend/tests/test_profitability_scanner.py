@@ -2,196 +2,246 @@
 Tests for profitability scanner calculations
 """
 import pytest
+from unittest.mock import MagicMock, patch
 from scripts.profitabilityScanner import ProfitabilityScanner
 
 
+# ── shared fixture ────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def scanner():
+    """Create a scanner instance without connecting to MongoDB"""
+    s = ProfitabilityScanner.__new__(ProfitabilityScanner)
+    return s
+
+
+# ── drawdown tests ────────────────────────────────────────────────────────────
+
 class TestDrawdown:
 
-
-    @pytest.fixture
-    def scanner(self):
-        """Create scanner instance for testing"""
-        scanner = ProfitabilityScanner.__new__(ProfitabilityScanner)
-        return scanner
-
-    def test_drawdown_with_only_profits(self, scanner):
-        """Test when all trades are profitable (no drawdown)"""
+    def test_only_profits_no_drawdown(self, scanner):
+        """All trades profitable — drawdown must be zero"""
         fills = [
-            {"time": 1000, "closedPnl": "100"},  # +100
-            {"time": 2000, "closedPnl": "50"},  # +50
-            {"time": 3000, "closedPnl": "75"},  # +75
+            {"time": 1000, "closedPnl": "100"},
+            {"time": 2000, "closedPnl": "50"},
+            {"time": 3000, "closedPnl": "75"},
         ]
-        # Cumulative: 100, 150, 225 (only going up)
-        # No drawdown should occur
+        assert scanner._calculate_drawdown(fills) == 0.0
 
-        result = scanner._calculate_drawdown(fills)
-        assert result == 0.0
-
-    def test_drawdown_with_losses(self, scanner):
-        """Test drawdown calculation with peak and trough"""
+    def test_drawdown_with_loss(self, scanner):
+        """Peak 500, trough 200 — drawdown = 60%"""
         fills = [
-            {"time": 1000, "closedPnl": "500"},  # Peak at 500
-            {"time": 2000, "closedPnl": "-300"},  # Drop to 200
-            {"time": 3000, "closedPnl": "100"},  # Recover to 300
+            {"time": 1000, "closedPnl": "500"},
+            {"time": 2000, "closedPnl": "-300"},
+            {"time": 3000, "closedPnl": "100"},
         ]
-        # Cumulative: 500 (peak), 200 (trough), 300
-        # Drawdown: (500 - 200) / 500 * 100 = 60%
+        assert scanner._calculate_drawdown(fills) == pytest.approx(60.0, rel=0.01)
 
-        result = scanner._calculate_drawdown(fills)
-        assert result == pytest.approx(60.0, rel=0.01)
+    def test_empty_fills(self, scanner):
+        """No fills — drawdown = 0"""
+        assert scanner._calculate_drawdown([]) == 0.0
 
-    def test_drawdown_empty_fills(self, scanner):
-        """Edge case: no trades"""
-        fills = []
-        result = scanner._calculate_drawdown(fills)
-        assert result == 0.0
+    def test_single_losing_trade(self, scanner):
+        """Only one losing trade — never had a positive peak, no drawdown"""
+        fills = [{"time": 1000, "closedPnl": "-100"}]
+        assert scanner._calculate_drawdown(fills) == 0.0
 
-    def test_drawdown_single_losing_trade(self, scanner):
-        """Edge case: only one trade, losing"""
+    def test_multiple_peaks_tracks_maximum(self, scanner):
+        """
+        Peak 1 = 300, trough = 200 (33% DD)
+        Peak 2 = 500, trough = 250 (50% DD) <- max
+        """
         fills = [
-            {"time": 1000, "closedPnl": "-100"}
+            {"time": 1000, "closedPnl": "300"},
+            {"time": 2000, "closedPnl": "-100"},
+            {"time": 3000, "closedPnl": "300"},
+            {"time": 4000, "closedPnl": "-250"},
         ]
-        # Peak at -100, stays at -100
-        # No meaningful drawdown from negative start
+        assert scanner._calculate_drawdown(fills) == pytest.approx(50.0, rel=0.01)
 
-        result = scanner._calculate_drawdown(fills)
-        assert result == 0.0
-
-    def test_drawdown_multiple_peaks(self, scanner):
-        """Test with multiple peaks - should track maximum drawdown"""
+    def test_unsorted_fills_sorted_by_time(self, scanner):
+        """Fills out of order — scanner must sort before calculating"""
         fills = [
-            {"time": 1000, "closedPnl": "300"},  # Peak 1: 300
-            {"time": 2000, "closedPnl": "-100"},  # Trough: 200 (33% DD)
-            {"time": 3000, "closedPnl": "300"},  # Peak 2: 500
-            {"time": 4000, "closedPnl": "-250"},  # Trough: 250 (50% DD) ← MAX
+            {"time": 3000, "closedPnl": "100"},
+            {"time": 1000, "closedPnl": "500"},
+            {"time": 2000, "closedPnl": "-300"},
         ]
-        # Max drawdown: (500 - 250) / 500 = 50%
+        # After sort: 500 -> 200 -> 300 => 60% DD
+        assert scanner._calculate_drawdown(fills) == pytest.approx(60.0, rel=0.01)
 
-        result = scanner._calculate_drawdown(fills)
-        assert result == pytest.approx(50.0, rel=0.01)
-
-    def test_drawdown_unsorted_fills(self, scanner):
-        """Test that fills are sorted by time correctly"""
+    def test_full_wipeout(self, scanner):
+        """Portfolio goes to zero — drawdown = 100%"""
         fills = [
-            {"time": 3000, "closedPnl": "100"},  # Out of order
-            {"time": 1000, "closedPnl": "500"},  # Should be first
-            {"time": 2000, "closedPnl": "-300"},  # Middle
+            {"time": 1000, "closedPnl": "1000"},
+            {"time": 2000, "closedPnl": "-1000"},
         ]
-        # After sorting: 500, 200, 300
-        # Drawdown: 60%
+        assert scanner._calculate_drawdown(fills) == pytest.approx(100.0, rel=0.01)
 
-        result = scanner._calculate_drawdown(fills)
-        assert result == pytest.approx(60.0, rel=0.01)
+    def test_recovery_after_drawdown(self, scanner):
+        """Drawdown then full recovery — max DD is still captured"""
+        fills = [
+            {"time": 1000, "closedPnl": "1000"},
+            {"time": 2000, "closedPnl": "-500"},   # 50% DD
+            {"time": 3000, "closedPnl": "500"},    # recovers to 1000
+            {"time": 4000, "closedPnl": "500"},    # new peak 1500
+        ]
+        assert scanner._calculate_drawdown(fills) == pytest.approx(50.0, rel=0.01)
 
 
-class TestWinRateCalculation:
-    """Test win rate calculation logic"""
+# ── fee tier tests ────────────────────────────────────────────────────────────
 
-    def test_win_rate_all_winners(self):
-        """Test 100% win rate"""
+class TestFeeTier:
+
+    def test_base_tier_at_or_above_base_rate(self, scanner):
+        """Cross rate at or above base rate = tier 0"""
+        fee_schedule = {
+            "cross": "0.00045",
+            "tiers": {
+                "vip": [
+                    {"cross": "0.00040"},
+                    {"cross": "0.00035"},
+                ]
+            }
+        }
+        # exactly at base rate
+        assert scanner._get_fee_tier(fee_schedule, 0.00045) == 0
+        # above base rate
+        assert scanner._get_fee_tier(fee_schedule, 0.00050) == 0
+
+    def test_vip_tier_1(self, scanner):
+        """Cross rate below base but above first VIP threshold"""
+        fee_schedule = {
+            "cross": "0.00045",
+            "tiers": {
+                "vip": [
+                    {"cross": "0.00040"},
+                    {"cross": "0.00035"},
+                ]
+            }
+        }
+        assert scanner._get_fee_tier(fee_schedule, 0.00042) == 1
+
+    def test_vip_tier_2(self, scanner):
+        """Cross rate at second VIP threshold"""
+        fee_schedule = {
+            "cross": "0.00045",
+            "tiers": {
+                "vip": [
+                    {"cross": "0.00040"},
+                    {"cross": "0.00035"},
+                ]
+            }
+        }
+        assert scanner._get_fee_tier(fee_schedule, 0.00035) == 2
+
+    def test_highest_tier_below_all_thresholds(self, scanner):
+        """Cross rate below all thresholds = highest tier"""
+        fee_schedule = {
+            "cross": "0.00045",
+            "tiers": {
+                "vip": [
+                    {"cross": "0.00040"},
+                    {"cross": "0.00035"},
+                ]
+            }
+        }
+        assert scanner._get_fee_tier(fee_schedule, 0.00010) == 2
+
+    def test_empty_tiers(self, scanner):
+        """No VIP tiers defined — everything is tier 0"""
+        fee_schedule = {
+            "cross": "0.00045",
+            "tiers": {"vip": []}
+        }
+        assert scanner._get_fee_tier(fee_schedule, 0.00045) == 0
+
+    def test_malformed_fee_schedule_returns_0(self, scanner):
+        """Corrupt data should not crash — returns 0"""
+        assert scanner._get_fee_tier({}, "not_a_number") == 0
+        assert scanner._get_fee_tier(None, 0.00045) == 0
+
+
+# ── win rate logic ────────────────────────────────────────────────────────────
+
+class TestWinRate:
+    """
+    Win rate is computed inline in calculate_profitability.
+    These tests verify the logic independently.
+    """
+
+    def _compute(self, fills):
+        closing = [f for f in fills if float(f.get("closedPnl", 0)) != 0]
+        total   = len(closing)
+        wins    = sum(1 for f in closing if float(f["closedPnl"]) > 0)
+        losses  = sum(1 for f in closing if float(f["closedPnl"]) < 0)
+        rate    = (wins / total * 100) if total > 0 else 0
+        return wins, losses, total, rate
+
+    def test_all_winners(self):
+        fills = [{"closedPnl": "100"}, {"closedPnl": "50"}, {"closedPnl": "25"}]
+        wins, losses, total, rate = self._compute(fills)
+        assert rate  == 100.0
+        assert wins  == 3
+        assert losses == 0
+
+    def test_mixed_60_percent(self):
         fills = [
             {"closedPnl": "100"},
-            {"closedPnl": "50"},
-            {"closedPnl": "25"},
-        ]
-
-        winning_trades = sum(1 for f in fills if float(f.get('closedPnl', 0)) > 0)
-        total_trades = len(fills)
-        win_rate = (winning_trades / total_trades * 100)
-
-        assert win_rate == 100.0
-        assert winning_trades == 3
-
-    def test_win_rate_mixed(self):
-        """Test 60% win rate"""
-        fills = [
-            {"closedPnl": "100"},  # Win
-            {"closedPnl": "-50"},  # Loss
-            {"closedPnl": "75"},  # Win
-            {"closedPnl": "25"},  # Win
-            {"closedPnl": "-100"},  # Loss
-        ]
-
-        winning_trades = sum(1 for f in fills if float(f.get('closedPnl', 0)) > 0)
-        losing_trades = sum(1 for f in fills if float(f.get('closedPnl', 0)) < 0)
-        total_trades = len(fills)
-        win_rate = (winning_trades / total_trades * 100)
-
-        assert win_rate == 60.0
-        assert winning_trades == 3
-        assert losing_trades == 2
-
-    def test_win_rate_all_losers(self):
-        """Test 0% win rate"""
-        fills = [
-            {"closedPnl": "-100"},
             {"closedPnl": "-50"},
-            {"closedPnl": "-25"},
+            {"closedPnl": "75"},
+            {"closedPnl": "25"},
+            {"closedPnl": "-100"},
         ]
+        wins, losses, total, rate = self._compute(fills)
+        assert rate   == 60.0
+        assert wins   == 3
+        assert losses == 2
 
-        winning_trades = sum(1 for f in fills if float(f.get('closedPnl', 0)) > 0)
-        total_trades = len(fills)
-        win_rate = (winning_trades / total_trades * 100)
+    def test_all_losers(self):
+        fills = [{"closedPnl": "-100"}, {"closedPnl": "-50"}]
+        wins, losses, total, rate = self._compute(fills)
+        assert rate == 0.0
+        assert wins == 0
 
-        assert win_rate == 0.0
-        assert winning_trades == 0
-
-    def test_win_rate_breakeven_trades_not_counted(self):
-        """Test that breakeven trades (PnL = 0) don't count as wins"""
+    def test_breakeven_excluded_from_wins(self):
+        """closedPnl == 0 is excluded because the scanner filters by != 0"""
         fills = [
-            {"closedPnl": "100"},  # Win
-            {"closedPnl": "0"},  # Breakeven (not a win)
-            {"closedPnl": "-50"},  # Loss
+            {"closedPnl": "100"},
+            {"closedPnl": "0"},    # breakeven — excluded
+            {"closedPnl": "-50"},
         ]
+        wins, losses, total, rate = self._compute(fills)
+        # only 2 closing fills count (100 and -50)
+        assert total == 2
+        assert rate  == pytest.approx(50.0, rel=0.01)
 
-        winning_trades = sum(1 for f in fills if float(f.get('closedPnl', 0)) > 0)
-        total_trades = len(fills)
-        win_rate = (winning_trades / total_trades * 100)
-
-        assert win_rate == pytest.approx(33.33, rel=0.01)
-        assert winning_trades == 1
-
-    def test_win_rate_no_trades(self):
-        """Edge case: no trades"""
-        fills = []
-
-        total_trades = len(fills)
-        win_rate = 0 if total_trades == 0 else (0 / total_trades * 100)
-
-        assert win_rate == 0
+    def test_no_trades(self):
+        wins, losses, total, rate = self._compute([])
+        assert rate  == 0
+        assert total == 0
 
 
-class TestVolumeCalculation:
-    """Test trading volume calculation"""
+# ── bot detection logic ───────────────────────────────────────────────────────
 
-    def test_total_volume_calculation(self):
-        """Test total volume is calculated correctly"""
-        fills = [
-            {"px": "3000", "sz": "1.5"},  # 3000 * 1.5 = 4500
-            {"px": "50000", "sz": "-0.1"},  # 50000 * 0.1 = 5000 (abs)
-            {"px": "100", "sz": "10"},  # 100 * 10 = 1000
-        ]
+class TestBotDetection:
+    """
+    is_likely_bot = (user_cross_rate == 0.0 or user_add_rate < 0)
+    Pure maker / rebate earners are flagged as bots.
+    """
 
-        total_volume = sum(
-            float(f.get('px', 0)) * abs(float(f.get('sz', 0)))
-            for f in fills
-        )
+    def _is_bot(self, cross_rate, add_rate):
+        return cross_rate == 0.0 or add_rate < 0
 
-        assert total_volume == 10500.0
+    def test_zero_cross_rate_is_bot(self):
+        assert self._is_bot(0.0, 0.0002) is True
 
-    def test_average_trade_size(self):
-        """Test average trade size calculation"""
-        fills = [
-            {"px": "1000", "sz": "1"},  # 1000
-            {"px": "2000", "sz": "1"},  # 2000
-            {"px": "3000", "sz": "1"},  # 3000
-        ]
+    def test_negative_add_rate_is_bot(self):
+        """Earns rebates on maker — likely algorithmic"""
+        assert self._is_bot(0.00045, -0.0001) is True
 
-        total_volume = sum(
-            float(f.get('px', 0)) * abs(float(f.get('sz', 0)))
-            for f in fills
-        )
-        total_trades = len(fills)
-        avg_trade_size = total_volume / total_trades
+    def test_normal_rates_not_bot(self):
+        assert self._is_bot(0.00045, 0.0002) is False
 
-        assert avg_trade_size == 2000.0
+    def test_both_zero_is_bot(self):
+        assert self._is_bot(0.0, 0.0) is True
+

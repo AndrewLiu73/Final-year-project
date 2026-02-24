@@ -1,6 +1,11 @@
+
 .discordContainer {
   display: flex;
-  height: 100vh;
+  position: fixed;
+  top: 60px;    /* your navbar height — check with F12 */
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: #36393f;
   color: #dcddde;
   font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -284,7 +289,7 @@
 /* Table */
 .tableContainer {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
