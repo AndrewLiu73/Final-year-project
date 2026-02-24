@@ -1,83 +1,28 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './TraderDetail.module.css';
+import { useTraderData }           from '../hooks/useWalletData';
+import { calculateDirectionalBias } from '../utils/biasUtils';
+
+const formatBalance = (balance) => {
+    if (balance === null || balance === undefined || balance === 0) return '$0';
+    if (Math.abs(balance) < 1000) return `$${Math.floor(balance)}`;
+    return `$${(balance / 1000).toFixed(2)}k`;
+};
+
+const formatLargeNumber = (num) => {
+    if (!num) return '0';
+    if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
+    if (num >= 1000)    return `${(num / 1000).toFixed(2)}k`;
+    return Math.floor(num).toString();
+};
 
 export default function TraderDetailPage() {
-    const { wallet } = useParams();
-    const navigate   = useNavigate();
-
-    const [trader,     setTrader]     = useState(null);
-    const [loading,    setLoading]    = useState(true);
-    const [error,      setError]      = useState(null);
-    const [dataSource, setDataSource] = useState('cached');
-
-    useEffect(() => {
-        if (!wallet) return;
-
-        const fetchData = async () => {
-            setLoading(true);
-            setError(null);
-
-            try {
-                // fire both requests at the same time
-                const [liveRes, dbRes] = await Promise.all([
-                    fetch(`http://localhost:8000/api/users/trader/${wallet}/live`),
-                    fetch(`http://localhost:8000/api/users/trader/${wallet}`)
-                ]);
-
-                const liveData = liveRes.ok ? await liveRes.json() : null;
-                const dbData   = dbRes.ok   ? await dbRes.json()   : null;
-
-                if (!dbData || dbData.error) {
-                    setError('Trader not found');
-                    setLoading(false);
-                    return;
-                }
-
-                // DB is the base (accurate trade history, win rate, drawdown)
-                // live overwrites only the real-time fields
-                const merged = {
-                    ...dbData,
-                    ...(liveData && !liveData.error ? {
-                        account_value:        liveData.account_value,
-                        withdrawable_balance: liveData.withdrawable_balance,
-                        total_pnl:            liveData.total_pnl,
-                        realized_pnl:         liveData.realized_pnl,
-                        unrealized_pnl:       liveData.unrealized_pnl,
-                        profit_percentage:    liveData.profit_percentage,
-                        open_positions:       liveData.open_positions,
-                        open_positions_count: liveData.open_positions_count,
-                        data_source:          'live',
-                    } : { data_source: 'cached' })
-                };
-
-                setTrader(merged);
-                setDataSource(merged.data_source);
-
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [wallet]);
-
-    const formatBalance = (balance) => {
-        if (balance === null || balance === undefined || balance === 0) return '$0';
-        if (Math.abs(balance) < 1000) return `$${Math.floor(balance)}`;
-        return `$${(balance / 1000).toFixed(2)}k`;
-    };
-
-    const formatLargeNumber = (num) => {
-        if (!num) return '0';
-        if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
-        if (num >= 1000)    return `${(num / 1000).toFixed(2)}k`;
-        return Math.floor(num).toString();
-    };
+    const { wallet }                          = useParams();
+    const navigate                            = useNavigate();
+    const { data: trader, loading, error,
+            dataSource }                      = useTraderData(wallet);
 
     const copyToClipboard = () => {
         if (wallet) {
@@ -86,48 +31,45 @@ export default function TraderDetailPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className={styles.container}>
-                <div className={styles.loadingState}>
-                    <div className={styles.spinner}></div>
-                    <p>Loading trader data...</p>
-                </div>
+if (loading || (!trader && !error)) {
+    return (
+        <div className={styles.container}>
+            <div className={styles.loadingState}>
+                <div className={styles.spinner}></div>
+                <p>Loading trader data...</p>
             </div>
-        );
-    }
+        </div>
+    );
+}
 
-    if (error || !trader) {
-        return (
-            <div className={styles.container}>
-                <div className={styles.errorState}>
-                    <h2>Error</h2>
-                    <p>{error || 'Trader not found'}</p>
-                    <button onClick={() => navigate('/traders')} className={styles.backButton}>
-                        Back to Traders
-                    </button>
-                </div>
+// only show error after loading is fully done
+if (!loading && (error || !trader)) {
+    return (
+        <div className={styles.container}>
+            <div className={styles.errorState}>
+                <h2>Trader Not Found</h2>
+                <p>{error || 'No data available for this wallet.'}</p>
+                <button onClick={() => navigate('/traders')} className={styles.backButton}>
+                    Back to Traders
+                </button>
             </div>
-        );
-    }
+        </div>
+    );
+}
+
 
     const totalPnl      = trader.total_pnl      ?? 0;
     const realizedPnl   = trader.realized_pnl   ?? 0;
     const unrealizedPnl = trader.unrealized_pnl ?? 0;
 
-    const winLossRatio       = trader.losing_trades > 0
-        ? (trader.winning_trades / trader.losing_trades)
-        : trader.winning_trades ?? 0;
-
-    const avgProfitPerTrade  = trader.trade_count > 0
-        ? totalPnl / trader.trade_count
-        : 0;
-
     const profitColor  = totalPnl > 0 ? '#3ba55d' : '#ed4245';
     const isProfitable = totalPnl > 0;
+    const bias         = calculateDirectionalBias(trader.open_positions);
 
     return (
         <div className={styles.container}>
+
+            {/* Header */}
             <div className={styles.header}>
                 <button onClick={() => navigate('/traders')} className={styles.backButton}>
                     Back to Traders
@@ -157,6 +99,7 @@ export default function TraderDetailPage() {
             </div>
 
             <div className={styles.gridContainer}>
+
                 {/* Account Overview */}
                 <div className={styles.card}>
                     <h2 className={styles.cardTitle}>Account Overview</h2>
@@ -172,7 +115,7 @@ export default function TraderDetailPage() {
                     </div>
                 </div>
 
-                {/* PnL */}
+                {/* Profit & Loss */}
                 <div className={styles.card}>
                     <h2 className={styles.cardTitle}>Profit & Loss</h2>
                     <div className={styles.metricGrid}>
@@ -180,12 +123,6 @@ export default function TraderDetailPage() {
                             <span className={styles.metricLabel}>Total PnL</span>
                             <span className={styles.metricValue} style={{ color: profitColor }}>
                                 {totalPnl > 0 ? '+' : ''}{formatBalance(totalPnl)}
-                            </span>
-                        </div>
-                        <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Profit %</span>
-                            <span className={styles.metricValue} style={{ color: profitColor }}>
-                                {trader.profit_percentage > 0 ? '+' : ''}{(trader.profit_percentage ?? 0).toFixed(2)}%
                             </span>
                         </div>
                         <div className={styles.metric}>
@@ -214,46 +151,22 @@ export default function TraderDetailPage() {
                             </span>
                         </div>
                         <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Total Trades</span>
-                            <span className={styles.metricValue}>
-                                {(trader.trade_count ?? 0).toLocaleString()}
-                            </span>
-                        </div>
-                        <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Winning Trades</span>
-                            <span className={styles.metricValueGreen}>
-                                {(trader.winning_trades ?? 0).toLocaleString()}
-                            </span>
-                        </div>
-                        <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Losing Trades</span>
+                            <span className={styles.metricLabel}>Max Drawdown</span>
                             <span className={styles.metricValueRed}>
-                                {(trader.losing_trades ?? 0).toLocaleString()}
-                            </span>
-                        </div>
-                        <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Win/Loss Ratio</span>
-                            <span className={styles.metricValue}>
-                                {winLossRatio.toFixed(2)}
-                            </span>
-                        </div>
-                        <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Avg Profit/Trade</span>
-                            <span className={styles.metricValue}>
-                                {formatBalance(avgProfitPerTrade)}
+                                {(trader.max_drawdown_percentage ?? 0).toFixed(2)}%
                             </span>
                         </div>
                     </div>
                 </div>
 
-                {/* Risk */}
+                {/* Directional Bias */}
                 <div className={styles.card}>
-                    <h2 className={styles.cardTitle}>Risk Management</h2>
+                    <h2 className={styles.cardTitle}>Directional Bias</h2>
                     <div className={styles.metricGrid}>
                         <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Max Drawdown</span>
-                            <span className={styles.metricValueRed}>
-                                {(trader.max_drawdown_percentage ?? 0).toFixed(2)}%
+                            <span className={styles.metricLabel}>Current Bias</span>
+                            <span className={styles.metricValue} style={{ color: bias.color, fontWeight: '700' }}>
+                                {bias.label}
                             </span>
                         </div>
                         <div className={styles.metric}>
@@ -265,7 +178,7 @@ export default function TraderDetailPage() {
                     </div>
                 </div>
 
-                {/* Volume */}
+                {/* Volume & Activity */}
                 <div className={styles.card}>
                     <h2 className={styles.cardTitle}>Volume & Activity</h2>
                     <div className={styles.metricGrid}>
@@ -291,6 +204,100 @@ export default function TraderDetailPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* Account Role */}
+                {trader.user_role && trader.user_role !== 'unknown' && (
+                    <div className={styles.card}>
+                        <h2 className={styles.cardTitle}>Account Role</h2>
+                        <div className={styles.metricGrid}>
+
+                            {/* role label row */}
+                            <div className={styles.metric}>
+                                <span className={styles.metricLabel}>Role</span>
+                                <span className={styles.metricValue}>
+                                    {trader.user_role === 'subAccount' ? 'Sub Account' : 'Master'}
+                                </span>
+                            </div>
+
+                            {/* sub account — master wallet link */}
+                            {trader.user_role === 'subAccount' && (
+                                <div className={styles.metric}>
+                                    <span className={styles.metricLabel}>Master</span>
+                                    {trader.master_wallet ? (
+                                        <span
+                                            className={styles.metricValue}
+                                            style={{ cursor: 'pointer', color: '#5865f2', fontSize: '13px', fontFamily: 'monospace' }}
+                                            onClick={() => navigate(`/traders/${trader.master_wallet}`)}
+                                            title={trader.master_wallet}
+                                        >
+                                            {trader.master_wallet.slice(0, 10)}...{trader.master_wallet.slice(-8)}
+                                        </span>
+                                    ) : (
+                                        <span className={styles.metricValue} style={{ color: '#96989d' }}>
+                                            Unknown Trader
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* master — sub account count */}
+                            {trader.user_role === 'master' && (
+                                <div className={styles.metric}>
+                                    <span className={styles.metricLabel}>Sub Accounts</span>
+                                    <span className={styles.metricValue}>{trader.sub_account_count ?? 0}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* master — sub account address list */}
+                        {trader.user_role === 'master' && trader.sub_accounts && trader.sub_accounts.length > 0 && (
+                            <div style={{ marginTop: '12px' }}>
+                                {trader.sub_accounts.map((addr, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            padding:      '8px 12px',
+                                            marginBottom: '6px',
+                                            background:   '#2b2d31',
+                                            borderRadius: '8px',
+                                            cursor:       'pointer',
+                                            color:        '#5865f2',
+                                            fontSize:     '13px',
+                                            fontFamily:   'monospace'
+                                        }}
+                                        onClick={() => navigate(`/traders/${addr}`)}
+                                        title={addr}
+                                    >
+                                        {addr.slice(0, 10)}...{addr.slice(-8)}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* Account Flags */}
+<div className={styles.card}>
+    <h2 className={styles.cardTitle}>Account Flags</h2>
+    <div className={styles.metricGrid}>
+        <div className={styles.metric}>
+            <span className={styles.metricLabel}>Bot</span>
+            <span className={styles.metricValue} style={{
+                color: trader.is_likely_bot ? '#ed4245' : '#3ba55d'
+            }}>
+                {trader.is_likely_bot ? 'Yes' : 'No'}
+            </span>
+        </div>
+        <div className={styles.metric}>
+            <span className={styles.metricLabel}>Vault Depositor</span>
+            <span className={styles.metricValue} style={{
+                color: trader.is_vault_depositor ? '#f0b132' : '#96989d'
+            }}>
+                {trader.is_vault_depositor ? 'Yes' : 'No'}
+            </span>
+        </div>
+    </div>
+</div>
+
 
                 {/* Open Positions */}
                 {trader.open_positions && trader.open_positions.length > 0 ? (
@@ -343,6 +350,7 @@ export default function TraderDetailPage() {
                         </div>
                     </div>
                 )}
+
             </div>
         </div>
     );

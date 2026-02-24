@@ -1,53 +1,108 @@
-import React, { useState } from "react";
+import React from "react";
 import { Line } from "react-chartjs-2";
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
 } from "chart.js";
+
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
-export default function BiasHistoryChart({ biasSummaries }) {
-  const coins = ["BTC", "ETH", "HYPE"];
-  const [period, setPeriod] = useState(7);
-  const [selectedCoin, setSelectedCoin] = useState("ALL");
-  const [type, setType] = useState("ALL");
+const COIN_COLOURS = {
+  BTC:  '#f7931a',
+  ETH:  '#627eea',
+  HYPE: '#5865f2',
+};
 
-  const filtered = biasSummaries.slice(-period);
-  const pickedCoins = selectedCoin === "ALL" ? coins : [selectedCoin];
-  const labels = filtered.map((_, idx) => `T${idx + 1}`);
+const ALL_COINS = ['BTC', 'ETH', 'HYPE'];
+
+// biasSummaries = full items with { timestamp, aggregate: { BTC: {...}, ETH: {...} } }
+export default function BiasHistoryChart({ biasSummaries, period, selectedCoin, type }) {
+  if (!biasSummaries || biasSummaries.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '60px', color: '#72767d', fontSize: 14 }}>
+        No data available for this period.
+      </div>
+    );
+  }
+
+  const filtered    = biasSummaries.slice(-period);
+  const pickedCoins = (selectedCoin === 'ALL' || !selectedCoin) ? ALL_COINS : [selectedCoin];
+
+  // Use real dates for X axis
+  const labels = filtered.map(item => {
+    const ts = item.timestamp;
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+  });
 
   const datasets = pickedCoins.map(coin => ({
-    label: `${coin} ${type === "LONG" ? "Long %" : type === "SHORT" ? "Short %" : "Long %"}`,
-    data: filtered.map(s =>
-      type === "LONG" ? s[coin]?.long_pct ?? 0
-      : type === "SHORT" ? s[coin]?.short_pct ?? 0
-      : s[coin]?.long_pct ?? 0),
-    borderColor: coin === "BTC" ? "#f6ad55" : coin === "ETH" ? "#4299e1" : "#e53e3e",
-    backgroundColor: "transparent"
+    label: `${coin} ${type === 'SHORT' ? 'Short %' : 'Long %'}`,
+    data: filtered.map(item => {
+      const agg = item.aggregate ?? item; // support both shapes
+      return type === 'SHORT'
+        ? (agg[coin]?.short_pct ?? 0)
+        : (agg[coin]?.long_pct  ?? 0);
+    }),
+    borderColor:      COIN_COLOURS[coin],
+    backgroundColor:  `${COIN_COLOURS[coin]}18`,
+    fill:             false,
+    tension:          0.3,
+    pointRadius:      3,
+    pointHoverRadius: 6,
+    borderWidth:      2,
   }));
 
   return (
-    <div style={{background: "#232b38", padding:"1rem", borderRadius:"12px", marginBottom:"2rem"}}>
-      <h2 style={{color:"#ecc94b"}}>Bias History Chart</h2>
-      <div style={{marginBottom:10}}>
-        <button onClick={() => setPeriod(7)}>Last 7</button>
-        <button onClick={() => setPeriod(30)}>Last 30</button>
-        <button onClick={() => setPeriod(biasSummaries.length)}>All</button>
-        {coins.map(coin => <button key={coin} onClick={() => setSelectedCoin(coin)}>{coin}</button>)}
-        <button onClick={() => setSelectedCoin("ALL")}>All Coins</button>
-        <button onClick={() => setType("LONG")}>Long Only</button>
-        <button onClick={() => setType("SHORT")}>Short Only</button>
-        <button onClick={() => setType("ALL")}>All (default)</button>
-      </div>
-      <Line data={{ labels, datasets }} options={{
+    <Line
+      data={{ labels, datasets }}
+      options={{
         responsive: true,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: {position: "top"},
-          title: {display: true, text: "Bias Trend Over Time"}
+          legend: {
+            position: 'top',
+            labels: {
+              color:           '#b9bbbe',
+              usePointStyle:   true,
+              pointStyleWidth: 16,
+              padding:         20,
+            },
+          },
+          tooltip: {
+            backgroundColor: '#2f3136',
+            titleColor:      '#ffffff',
+            bodyColor:       '#b9bbbe',
+            borderColor:     '#202225',
+            borderWidth:     1,
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+            },
+          },
         },
         scales: {
-          y: {title: {display:true, text:"% Long or Short"}, min:0, max:100}
-        }
-      }} />
-    </div>
+          x: {
+            ticks: {
+              color:    '#72767d',
+              maxTicksLimit: 12,
+              maxRotation:   45,
+            },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+          },
+          y: {
+            min:   0,
+            max:   100,
+            ticks: { color: '#72767d', callback: v => `${v}%` },
+            grid:  { color: 'rgba(255,255,255,0.05)' },
+            title: { display: true, text: '% Long or Short', color: '#72767d' },
+          },
+        },
+      }}
+    />
   );
 }

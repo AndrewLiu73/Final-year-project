@@ -12,20 +12,17 @@ export default function ProfitableTradersPage() {
   const [minBalanceInput, setMinBalanceInput] = useState('');
   const [maxBalanceInput, setMaxBalanceInput] = useState('');
   const [pageSizeInput, setPageSizeInput] = useState('100');
-  const [activeOnlyInput, setActiveOnlyInput] = useState(false);
 
   const [appliedFilters, setAppliedFilters] = useState({
-    minWinrate: undefined,
+    minWinrate:  undefined,
     maxDrawdown: undefined,
-    minBalance: undefined,
-    maxBalance: undefined,
-    activeOnly: false,
+    minBalance:  undefined,
+    maxBalance:  undefined,
   });
 
   const [pageSize, setPageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Server-side sort state
   const [sortBy, setSortBy] = useState('pnl');
   const [sortDirection, setSortDirection] = useState('desc');
 
@@ -41,11 +38,10 @@ export default function ProfitableTradersPage() {
 
   const handleApplyFilters = () => {
     setAppliedFilters({
-      minWinrate: minWinrateInput ? parseFloat(minWinrateInput) : undefined,
+      minWinrate:  minWinrateInput  ? parseFloat(minWinrateInput)  : undefined,
       maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
-      minBalance: minBalanceInput ? parseFloat(minBalanceInput) : undefined,
-      maxBalance: maxBalanceInput ? parseFloat(maxBalanceInput) : undefined,
-      activeOnly: activeOnlyInput,
+      minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
+      maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
     });
 
     const newPageSize = parseInt(pageSizeInput) || 100;
@@ -58,31 +54,28 @@ export default function ProfitableTradersPage() {
     setMinBalanceInput('');
     setMaxBalanceInput('');
     setPageSizeInput('100');
-    setActiveOnlyInput(false);
     setAppliedFilters({
-      minWinrate: undefined,
+      minWinrate:  undefined,
       maxDrawdown: undefined,
-      minBalance: undefined,
-      maxBalance: undefined,
-      activeOnly: false,
+      minBalance:  undefined,
+      maxBalance:  undefined,
     });
     setPageSize(100);
   };
 
   const hasUnappliedChanges = useMemo(() => {
     const currentInputs = {
-      minWinrate: minWinrateInput ? parseFloat(minWinrateInput) : undefined,
+      minWinrate:  minWinrateInput  ? parseFloat(minWinrateInput)  : undefined,
       maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
-      minBalance: minBalanceInput ? parseFloat(minBalanceInput) : undefined,
-      maxBalance: maxBalanceInput ? parseFloat(maxBalanceInput) : undefined,
-      activeOnly: activeOnlyInput,
+      minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
+      maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
     };
 
-    const inputPageSize = parseInt(pageSizeInput) || 100;
-    const pageSizeChanged = inputPageSize !== pageSize;
+    const inputPageSize    = parseInt(pageSizeInput) || 100;
+    const pageSizeChanged  = inputPageSize !== pageSize;
 
     return JSON.stringify(currentInputs) !== JSON.stringify(appliedFilters) || pageSizeChanged;
-  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, activeOnlyInput, pageSizeInput, appliedFilters, pageSize]);
+  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, pageSizeInput, appliedFilters, pageSize]);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -95,9 +88,7 @@ export default function ProfitableTradersPage() {
 
   const formatBalance = (balance) => {
     if (!balance || balance === 0) return '$0';
-    if (Math.abs(balance) < 1000) {
-      return `$${Math.floor(balance)}`;
-    }
+    if (Math.abs(balance) < 1000) return `$${Math.floor(balance)}`;
     return `$${(balance / 1000).toFixed(1)}k`;
   };
 
@@ -114,16 +105,16 @@ export default function ProfitableTradersPage() {
 
   const stats = useMemo(() => {
     const profitableCount = filteredTraders.filter(t => t.isProfitable).length;
-    const totalGain = filteredTraders.reduce((sum, t) => sum + t.gainDollar, 0);
-    const avgGain = filteredTraders.length > 0 ? totalGain / filteredTraders.length : 0;
-    const avgWinrate = filteredTraders.length > 0
+    const totalGain       = filteredTraders.reduce((sum, t) => sum + t.gainDollar, 0);
+    const avgGain         = filteredTraders.length > 0 ? totalGain / filteredTraders.length : 0;
+    const avgWinrate      = filteredTraders.length > 0
       ? filteredTraders.reduce((sum, t) => sum + (t.winrate || 0), 0) / filteredTraders.length
       : 0;
 
     return {
-      loaded: traders.length,
-      total: pagination.total_count,
-      displayed: filteredTraders.length,
+      loaded:     traders.length,
+      total:      pagination.total_count,
+      displayed:  filteredTraders.length,
       profitable: profitableCount,
       totalGain,
       avgGain,
@@ -155,7 +146,7 @@ export default function ProfitableTradersPage() {
     return (
       <div className={styles.discordContainer}>
         <div className={styles.errorState}>
-          <p>❌ Error: {error}</p>
+          <p>Error: {error}</p>
           <button onClick={() => window.location.reload()}>Retry</button>
         </div>
       </div>
@@ -164,6 +155,8 @@ export default function ProfitableTradersPage() {
 
   return (
     <div className={styles.discordContainer}>
+
+      {/* Sidebar */}
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <h2>Filters</h2>
@@ -171,21 +164,6 @@ export default function ProfitableTradersPage() {
         </div>
 
         <div className={styles.filterSection}>
-          <label className={styles.toggleLabel}>
-            <div className={styles.toggleHeader}>
-              <span className={styles.labelText}>Active Traders Only</span>
-              <div className={styles.toggleSwitch}>
-                <input
-                  type="checkbox"
-                  checked={activeOnlyInput}
-                  onChange={(e) => setActiveOnlyInput(e.target.checked)}
-                  className={styles.toggleInput}
-                />
-                <span className={styles.toggleSlider}></span>
-              </div>
-            </div>
-            <span className={styles.helperText}>Balance &gt; $0</span>
-          </label>
 
           <label className={styles.filterLabel}>
             <span className={styles.labelText}>Min Winrate %</span>
@@ -260,7 +238,7 @@ export default function ProfitableTradersPage() {
               className={`${styles.applyButton} ${hasUnappliedChanges ? styles.applyButtonActive : ''}`}
               disabled={!hasUnappliedChanges}
             >
-              {hasUnappliedChanges ? '🔍 Apply Filters' : '✓ Filters Applied'}
+              {hasUnappliedChanges ? 'Apply Filters' : 'Filters Applied'}
             </button>
             <button
               onClick={handleClearFilters}
@@ -282,7 +260,9 @@ export default function ProfitableTradersPage() {
           </div>
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Avg Gain</span>
-            <span className={styles.statValue}>${stats.avgGain.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+            <span className={styles.statValue}>
+              ${stats.avgGain.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </span>
           </div>
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Avg WR</span>
@@ -291,6 +271,7 @@ export default function ProfitableTradersPage() {
         </div>
       </div>
 
+      {/* Main Content */}
       <div className={styles.mainContent}>
         <div className={styles.channelHeader}>
           <div className={styles.channelInfo}>
@@ -349,7 +330,6 @@ export default function ProfitableTradersPage() {
               <>
                 {filteredTraders.map((trader, index) => {
                   const profitColor = trader.isProfitable ? '#3ba55d' : '#ed4245';
-
                   return (
                     <div key={`${trader.wallet}-${index}`} className={styles.tableRow}>
                       <div className={styles.colWallet}>
@@ -376,10 +356,7 @@ export default function ProfitableTradersPage() {
 
                       <div className={styles.colPnl}>
                         <div className={styles.pnlCell}>
-                          <span
-                            className={styles.pnlValue}
-                            style={{ color: profitColor }}
-                          >
+                          <span className={styles.pnlValue} style={{ color: profitColor }}>
                             {trader.gainDollar > 0 ? '+' : ''}{formatBalance(Math.abs(trader.gainDollar))}
                           </span>
                           <span className={styles.pnlPercent} style={{ color: profitColor }}>
