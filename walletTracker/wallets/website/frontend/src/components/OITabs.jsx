@@ -1,22 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import styles from './OITabs.module.css';
 
 const GREEN  = '#3ba55d';
 const RED    = '#ed4245';
-const ACCENT = '#5865f2';
 
 const COIN_COLOURS = {
   BTC:  '#f7931a',
   ETH:  '#627eea',
-  HYPE: '#5865f2',
-};
-
-const EXCHANGE_COLOURS = {
-  Binance:     '#f0b90b',
-  OKX:         '#00b4d8',
-  Bybit:       '#f7a600',
-  Deribit:     '#0e8fff',
-  Hyperliquid: '#5865f2',
+  HYPE: '#a300b8',
 };
 
 const TREND_COLOURS = {
@@ -29,8 +21,6 @@ const TREND_COLOURS = {
 };
 
 const TARGET_COINS = ['BTC', 'ETH'];
-
-// ── live fetchers ─────────────────────────────────────────────────────────────
 
 async function fetchBinanceLive() {
   const results = {};
@@ -91,13 +81,9 @@ async function fetchDeribitLive() {
     );
     const data  = await res.json();
     const items = data.result || [];
-
-    // open_interest already in USD — sum directly
     const total_oi = items.reduce((s, i) => s + parseFloat(i.open_interest || 0), 0);
-
-    const perp   = items.find(i => i.instrument_name?.includes(`${coin}-PERPETUAL`)) || items[0];
-    const mark_px = parseFloat(perp?.mark_price || 0);
-
+    const perp     = items.find(i => i.instrument_name?.includes(`${coin}-PERPETUAL`)) || items[0];
+    const mark_px  = parseFloat(perp?.mark_price || 0);
     results[coin] = { oi_usd: total_oi, mark_px };
   }));
   return results;
@@ -132,16 +118,11 @@ const EXCHANGE_FETCHERS = {
   Hyperliquid: fetchHyperliquidLive,
 };
 
-// ── shared components ─────────────────────────────────────────────────────────
-
 function PieTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const { name, value, payload: p } = payload[0];
   return (
-    <div style={{
-      background: '#2f3136', border: '1px solid #202225',
-      borderRadius: 6, padding: '10px 14px', fontSize: 13,
-    }}>
+    <div className={styles.tooltip}>
       <div style={{ color: '#fff', fontWeight: 700, marginBottom: 4 }}>{name}</div>
       <div style={{ color: '#b9bbbe' }}>${(value / 1e9).toFixed(3)}B</div>
       <div style={{ color: p.fill, fontWeight: 600 }}>{p.pct?.toFixed(1)}%</div>
@@ -151,23 +132,63 @@ function PieTooltip({ active, payload }) {
 
 function TrendBadge({ label }) {
   if (!label) return null;
+  const colour = TREND_COLOURS[label] || '#96989d';
+
+  const SIGNAL_TABLE = [
+    { oi: '> +3%', px: '> +1%', label: 'Building Long'     },
+    { oi: '> +3%', px: '< -1%', label: 'Squeeze Risk'      },
+    { oi: '> +3%', px: 'flat',  label: 'Crowded / Fragile' },
+    { oi: '< -3%', px: '> +1%', label: 'Short Covering'    },
+    { oi: '< -3%', px: '< -1%', label: 'Deleveraging'      },
+    { oi: 'flat',  px: 'flat',  label: 'Neutral'            },
+  ];
+
   return (
-    <span style={{
-      display:      'inline-block',
-      padding:      '3px 10px',
-      borderRadius: 99,
-      fontSize:     11,
-      fontWeight:   700,
-      background:   (TREND_COLOURS[label] || '#96989d') + '22',
-      color:        TREND_COLOURS[label]  || '#96989d',
-      border:       `1px solid ${TREND_COLOURS[label] || '#96989d'}55`,
-    }}>
-      {label}
+    <span className={styles.trendBadgeWrapper}>
+      <span
+        className={styles.trendBadge}
+        style={{
+          background: colour + '22',
+          color:      colour,
+          border:     `1px solid ${colour}55`,
+          cursor:     'pointer',
+        }}
+      >
+        {label}
+      </span>
+
+      <div className={styles.trendTable}>
+        <div className={styles.trendTableTitle}>Signal Reference</div>
+        <div className={styles.trendTableGrid}>
+          <div className={styles.trendTableHeader}>OI Change</div>
+          <div className={styles.trendTableHeader}>Price Change</div>
+          <div className={styles.trendTableHeader}>Signal</div>
+          {SIGNAL_TABLE.map((row, i) => {
+            const rowColour = TREND_COLOURS[row.label] || '#96989d';
+            const isActive  = row.label === label;
+            return (
+              <React.Fragment key={i}>
+                <div className={`${styles.trendTableCell} ${isActive ? styles.trendTableCellActive : ''}`}>
+                  {row.oi}
+                </div>
+                <div className={`${styles.trendTableCell} ${isActive ? styles.trendTableCellActive : ''}`}>
+                  {row.px}
+                </div>
+                <div
+                  className={`${styles.trendTableCell} ${isActive ? styles.trendTableCellActive : ''}`}
+                  style={{ color: rowColour, fontWeight: 700 }}
+                >
+                  {row.label}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
     </span>
   );
 }
 
-// ── generic exchange tab ──────────────────────────────────────────────────────
 
 function ExchangeTab({ exchange, backendData }) {
   const [liveData, setLiveData] = useState(null);
@@ -182,15 +203,15 @@ function ExchangeTab({ exchange, backendData }) {
   }, [exchange]);
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, color: '#96989d' }}>
-      <div style={spinnerStyle}></div> Fetching live OI from {exchange}...
+    <div className={styles.loadingWrapper}>
+      <div className={styles.spinner}></div>
+      Fetching live OI from {exchange}...
     </div>
   );
-  if (error) return <div style={{ color: RED, padding: 20 }}>Error: {error}</div>;
+  if (error)     return <div style={{ color: RED, padding: 20 }}>Error: {error}</div>;
   if (!liveData) return null;
 
-  const colour  = EXCHANGE_COLOURS[exchange] || '#72767d';
-  const entries = Object.entries(liveData);
+  const entries = Object.entries(liveData).sort((a, b) => b[1].oi_usd - a[1].oi_usd);
   const totalOI = entries.reduce((s, [, v]) => s + v.oi_usd, 0);
 
   const pieData = entries.map(([coin, v]) => ({
@@ -201,9 +222,9 @@ function ExchangeTab({ exchange, backendData }) {
   }));
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-      <div style={cardStyle}>
-        <div style={cardTitle}>Live OI — {exchange} (USD)</div>
+    <div className={styles.grid2}>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Live OI — {exchange} (USD)</div>
         <ResponsiveContainer width="100%" height={260}>
           <PieChart>
             <Pie data={pieData} cx="50%" cy="50%" innerRadius={70} outerRadius={110}
@@ -218,43 +239,43 @@ function ExchangeTab({ exchange, backendData }) {
             )} />
           </PieChart>
         </ResponsiveContainer>
-        <div style={{ textAlign: 'center', fontSize: 12, color: '#96989d', marginTop: 4 }}>
+        <div className={styles.totalLabel}>
           Total {exchange} OI: ${(totalOI / 1e9).toFixed(3)}B
         </div>
       </div>
 
-      <div style={cardStyle}>
-        <div style={cardTitle}>Asset Breakdown + 30min Signal</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Asset Breakdown + OI Change</div>
+        <div className={styles.assetList}>
           {entries.map(([coin, v]) => {
-            const backend = backendData?.[coin]?.find(d => d.exchange === exchange);
-            const chg     = backend?.change_pct_30min ?? null;
-            const label   = backend?.trend_label      ?? null;
-            const px_chg  = backend?.px_change_30min  ?? null;
+            const backend = backendData?.[coin]?.find(
+              d => d.exchange?.toLowerCase() === exchange.toLowerCase()
+            );
+            const chg    = backend?.change_pct_30min ?? null;
+            const label  = backend?.trend_label      ?? null;
+            const px_chg = backend?.px_change_30min  ?? null;
 
             return (
-              <div key={coin} style={{
-                background:   '#36393f',
-                borderRadius: 8,
-                padding:      '14px 18px',
-                border:       `1px solid ${COIN_COLOURS[coin] || '#202225'}33`,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div
+                key={coin}
+                className={styles.assetCard}
+                style={{ border: `1px solid ${COIN_COLOURS[coin] || '#202225'}33` }}
+              >
+                <div className={styles.assetCardHeader}>
                   <div style={{ color: COIN_COLOURS[coin], fontWeight: 800, fontSize: 16 }}>{coin}</div>
                   <TrendBadge label={label} />
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className={styles.assetCardGrid}>
                   <div>
-                    <div style={statLabel}>Live OI (USD)</div>
-                    <div style={statValue}>${(v.oi_usd / 1e9).toFixed(3)}B</div>
+                    <div className={styles.statLabel}>Live OI (USD)</div>
+                    <div className={styles.statValue}>${(v.oi_usd / 1e9).toFixed(3)}B</div>
                   </div>
                   <div>
-                    <div style={statLabel}>Mark Price</div>
-                    <div style={statValue}>${v.mark_px.toLocaleString()}</div>
+                    <div className={styles.statLabel}>Mark Price</div>
+                    <div className={styles.statValue}>${v.mark_px.toLocaleString()}</div>
                   </div>
                   <div>
-                    <div style={statLabel}>OI Change (30m)</div>
+                    <div className={styles.statLabel}>OI Change (30m)</div>
                     <div style={{
                       fontSize: 16, fontWeight: 700,
                       color: chg === null ? '#96989d' : chg >= 0 ? GREEN : RED,
@@ -263,7 +284,7 @@ function ExchangeTab({ exchange, backendData }) {
                     </div>
                   </div>
                   <div>
-                    <div style={statLabel}>Price Change (30m)</div>
+                    <div className={styles.statLabel}>Price Change (30m)</div>
                     <div style={{
                       fontSize: 16, fontWeight: 700,
                       color: px_chg === null ? '#96989d' : px_chg >= 0 ? GREEN : RED,
@@ -281,8 +302,6 @@ function ExchangeTab({ exchange, backendData }) {
   );
 }
 
-// ── millionaire tab (unchanged) ───────────────────────────────────────────────
-
 function MillionaireTab({ aggregate }) {
   const coins = Object.entries(aggregate);
   if (!coins.length) return <p style={{ color: '#96989d', padding: 20 }}>No data</p>;
@@ -297,17 +316,19 @@ function MillionaireTab({ aggregate }) {
     { name: 'Short', value: totalShort, pct: 100 - lsPct, fill: RED   },
   ];
 
-  const coinData = coins.map(([coin, v]) => ({
-    name:  coin,
-    value: (v.long || 0) + (v.short || 0),
-    pct:   totalOI > 0 ? (((v.long || 0) + (v.short || 0)) / totalOI * 100) : 0,
-    fill:  COIN_COLOURS[coin] || '#72767d',
-  }));
+  const coinData = coins
+    .map(([coin, v]) => ({
+      name:  coin,
+      value: (v.long || 0) + (v.short || 0),
+      pct:   totalOI > 0 ? (((v.long || 0) + (v.short || 0)) / totalOI * 100) : 0,
+      fill:  COIN_COLOURS[coin] || '#72767d',
+    }))
+    .sort((a, b) => b.value - a.value);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-      <div style={cardStyle}>
-        <div style={cardTitle}>Long / Short Split</div>
+    <div className={styles.grid2}>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Long / Short Split</div>
         <ResponsiveContainer width="100%" height={260}>
           <PieChart>
             <Pie data={lsData} cx="50%" cy="50%" innerRadius={70} outerRadius={110}
@@ -322,13 +343,13 @@ function MillionaireTab({ aggregate }) {
             )} />
           </PieChart>
         </ResponsiveContainer>
-        <div style={{ textAlign: 'center', marginTop: 4, fontSize: 12, color: '#96989d' }}>
+        <div className={styles.totalLabel}>
           Total tracked exposure: ${(totalOI / 1e9).toFixed(3)}B
         </div>
       </div>
 
-      <div style={cardStyle}>
-        <div style={cardTitle}>Exposure by Asset</div>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Exposure by Asset</div>
         <ResponsiveContainer width="100%" height={260}>
           <PieChart>
             <Pie data={coinData} cx="50%" cy="50%" innerRadius={70} outerRadius={110}
@@ -348,12 +369,10 @@ function MillionaireTab({ aggregate }) {
   );
 }
 
-// ── hyperliquid OI tab (unchanged) ────────────────────────────────────────────
-
-function HyperliquidOITab() {
-  const [oiData,  setOiData]  = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+function HyperliquidOITab({ backendData }) {
+  const [liveData, setLiveData] = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
 
   const TARGETS = ['BTC', 'ETH', 'HYPE'];
 
@@ -375,10 +394,10 @@ function HyperliquidOITab() {
             const ctx = ctxs[i];
             const oi  = parseFloat(ctx.openInterest || 0);
             const px  = parseFloat(ctx.markPx       || 0);
-            results[asset.name] = { openInterest: oi, markPx: px, oiUsd: oi * px };
+            results[asset.name] = { oi_usd: oi * px, mark_px: px, openInterest: oi };
           }
         });
-        setOiData(results);
+        setLiveData(results);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -389,26 +408,28 @@ function HyperliquidOITab() {
   }, []);
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, color: '#96989d' }}>
-      <div style={spinnerStyle}></div> Fetching live OI from Hyperliquid...
+    <div className={styles.loadingWrapper}>
+      <div className={styles.spinner}></div>
+      Fetching live OI from Hyperliquid...
     </div>
   );
-  if (error) return <div style={{ color: RED, padding: 20 }}>Error: {error}</div>;
+  if (error)     return <div style={{ color: RED, padding: 20 }}>Error: {error}</div>;
+  if (!liveData) return null;
 
-  const entries = Object.entries(oiData);
-  const totalOI = entries.reduce((s, [, v]) => s + v.oiUsd, 0);
+  const entries = Object.entries(liveData).sort((a, b) => b[1].oi_usd - a[1].oi_usd);
+  const totalOI = entries.reduce((s, [, v]) => s + v.oi_usd, 0);
 
   const pieData = entries.map(([coin, v]) => ({
     name:  coin,
-    value: v.oiUsd,
-    pct:   totalOI > 0 ? (v.oiUsd / totalOI * 100) : 0,
+    value: v.oi_usd,
+    pct:   totalOI > 0 ? (v.oi_usd / totalOI * 100) : 0,
     fill:  COIN_COLOURS[coin] || '#72767d',
   }));
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-      <div style={cardStyle}>
-        <div style={cardTitle}>OI by Asset (USD)</div>
+    <div className={styles.grid2}>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Live OI — Hyperliquid (USD)</div>
         <ResponsiveContainer width="100%" height={260}>
           <PieChart>
             <Pie data={pieData} cx="50%" cy="50%" innerRadius={70} outerRadius={110}
@@ -423,123 +444,84 @@ function HyperliquidOITab() {
             )} />
           </PieChart>
         </ResponsiveContainer>
-        <div style={{ textAlign: 'center', fontSize: 12, color: '#96989d', marginTop: 4 }}>
-          Total OI (BTC+ETH+HYPE): ${(totalOI / 1e9).toFixed(3)}B
+        <div className={styles.totalLabel}>
+          Total Hyperliquid OI: ${(totalOI / 1e9).toFixed(3)}B
         </div>
       </div>
 
-      <div style={cardStyle}>
-        <div style={cardTitle}>Asset Breakdown</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
-          {entries.map(([coin, v]) => (
-            <div key={coin} style={{
-              background: '#36393f', borderRadius: 8, padding: '14px 18px',
-              border: `1px solid ${COIN_COLOURS[coin] || '#202225'}22`,
-            }}>
-              <div style={{ color: COIN_COLOURS[coin], fontWeight: 800, fontSize: 16, marginBottom: 8 }}>
-                {coin}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div>
-                  <div style={statLabel}>Open Interest</div>
-                  <div style={statValue}>${(v.oiUsd / 1e9).toFixed(3)}B</div>
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Asset Breakdown + OI Change</div>
+        <div className={styles.assetList}>
+          {entries.map(([coin, v]) => {
+            const backend = backendData?.[coin]?.find(
+              d => d.exchange?.toLowerCase() === 'hyperliquid'
+            );
+            const chg    = backend?.change_pct_30min ?? null;
+            const label  = backend?.trend_label      ?? null;
+            const px_chg = backend?.px_change_30min  ?? null;
+
+            return (
+              <div
+                key={coin}
+                className={styles.assetCard}
+                style={{ border: `1px solid ${COIN_COLOURS[coin] || '#202225'}22` }}
+              >
+                <div className={styles.assetCardHeader}>
+                  <div style={{ color: COIN_COLOURS[coin], fontWeight: 800, fontSize: 16, marginBottom: 8 }}>
+                    {coin}
+                  </div>
+                  <TrendBadge label={label} />
                 </div>
-                <div>
-                  <div style={statLabel}>Mark Price</div>
-                  <div style={statValue}>${v.markPx.toLocaleString()}</div>
-                </div>
-                <div>
-                  <div style={statLabel}>Coin Units OI</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#b9bbbe' }}>
-                    {v.openInterest.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                <div className={styles.assetCardGrid}>
+                  <div>
+                    <div className={styles.statLabel}>Live OI (USD)</div>
+                    <div className={styles.statValue}>${(v.oi_usd / 1e9).toFixed(3)}B</div>
+                  </div>
+                  <div>
+                    <div className={styles.statLabel}>Mark Price</div>
+                    <div className={styles.statValue}>${v.mark_px.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className={styles.statLabel}>OI Change (30m)</div>
+                    <div style={{
+                      fontSize: 16, fontWeight: 700,
+                      color: chg === null ? '#96989d' : chg >= 0 ? GREEN : RED,
+                    }}>
+                      {chg === null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={styles.statLabel}>Price Change (30m)</div>
+                    <div style={{
+                      fontSize: 16, fontWeight: 700,
+                      color: px_chg === null ? '#96989d' : px_chg >= 0 ? GREEN : RED,
+                    }}>
+                      {px_chg === null ? '—' : `${px_chg >= 0 ? '+' : ''}${px_chg.toFixed(2)}%`}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div style={statLabel}>Share of Total</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: COIN_COLOURS[coin] }}>
-                    {totalOI > 0 ? (v.oiUsd / totalOI * 100).toFixed(1) : 0}%
-                  </div>
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-// ── styles ────────────────────────────────────────────────────────────────────
-
-const cardStyle = {
-  background:   '#2f3136',
-  borderRadius: 8,
-  padding:      '20px 24px',
-  border:       '1px solid #202225',
-};
-
-const cardTitle = {
-  fontSize:      11,
-  fontWeight:    700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.8px',
-  color:         '#96989d',
-  marginBottom:  16,
-  paddingBottom: 10,
-  borderBottom:  '1px solid #202225',
-};
-
-const statLabel = {
-  fontSize:      11,
-  color:         '#96989d',
-  textTransform: 'uppercase',
-  letterSpacing: '0.5px',
-};
-
-const statValue = {
-  fontSize:  16,
-  fontWeight: 700,
-  color:     '#fff',
-};
-
-const spinnerStyle = {
-  width:        18,
-  height:       18,
-  border:       '3px solid #202225',
-  borderTop:    '3px solid #5865f2',
-  borderRadius: '50%',
-  animation:    'spin 1s linear infinite',
-  flexShrink:   0,
-};
-
-const tabStyle = (active) => ({
-  padding:      '8px 20px',
-  background:   active ? ACCENT : '#2f3136',
-  color:        active ? '#fff' : '#96989d',
-  border:       `1px solid ${active ? ACCENT : '#202225'}`,
-  borderRadius: '4px',
-  cursor:       'pointer',
-  fontWeight:   700,
-  fontSize:     13,
-  transition:   'all 0.15s ease',
-});
-
-// ── root component ────────────────────────────────────────────────────────────
-
 const TABS = [
-  { key: 'millionaire', label: 'Millionaire Cohort' },
-  { key: 'hyperliquid', label: 'Hyperliquid OI (Live)' },
-  { key: 'Binance',     label: 'Binance' },
-  { key: 'Bybit',       label: 'Bybit' },
-  { key: 'OKX',         label: 'OKX' },
-  { key: 'Deribit',     label: 'Deribit' },
+  { key: 'millionaire', label: 'Millionaire Bias' },
+  { key: 'hyperliquid', label: 'Hyperliquid OI' },
+  { key: 'Binance',     label: 'Binance OI' },
+  { key: 'Bybit',       label: 'Bybit OI' },
+  { key: 'OKX',         label: 'OKX OI' },
+  { key: 'Deribit',     label: 'Deribit OI' },
 ];
 
 export default function OITabs({ aggregate }) {
   const [tab,         setTab]         = useState('millionaire');
   const [backendData, setBackendData] = useState(null);
 
-  // fetch backend once for 30-min deltas and trend labels
   useEffect(() => {
     fetch('http://localhost:8000/api/exchange-oi')
       .then(res => res.json())
@@ -549,20 +531,22 @@ export default function OITabs({ aggregate }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div className={styles.tabBar}>
         {TABS.map(t => (
-          <button key={t.key} style={tabStyle(tab === t.key)} onClick={() => setTab(t.key)}>
+          <button
+            key={t.key}
+            className={`${styles.tab} ${tab === t.key ? styles.active : ''}`}
+            onClick={() => setTab(t.key)}
+          >
             {t.label}
           </button>
         ))}
       </div>
 
       {tab === 'millionaire' && <MillionaireTab aggregate={aggregate} />}
-      {tab === 'hyperliquid' && <HyperliquidOITab />}
+      {tab === 'hyperliquid' && <HyperliquidOITab backendData={backendData} />}
       {['Binance', 'Bybit', 'OKX', 'Deribit'].map(ex => (
-        tab === ex && (
-          <ExchangeTab key={ex} exchange={ex} backendData={backendData} />
-        )
+        tab === ex && <ExchangeTab key={ex} exchange={ex} backendData={backendData} />
       ))}
     </div>
   );

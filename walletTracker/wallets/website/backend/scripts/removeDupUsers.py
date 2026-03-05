@@ -1,17 +1,16 @@
 """
-Remove duplicate wallet addresses from users collection
+1. Remove extra fields from users collection (keep only _id and user)
+2. Remove duplicate wallet addresses from users collection
 """
 
 import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 
-def remove_duplicate_users():
-    """Remove duplicate wallet addresses, keeping only one copy of each"""
+def clean_users_collection():
 
     mongo_uri = os.getenv('MONGO_URI')
 
@@ -23,30 +22,49 @@ def remove_duplicate_users():
     client = MongoClient(mongo_uri)
     db = client['hyperliquid']
 
-    print("Analyzing users collection for duplicates...")
+    # Step 1: Remove unwanted fields
+    print("\nRemoving extra fields from users collection...")
+    result = db.users.update_many(
+        {},
+        {
+            "$unset": {
+                "last_seen": "",
+                "tx_count": "",
+                "has_trading_activity": "",
+                "is_profitable": "",
+                "last_profitability_check": "",
+                "total_pnl": "",
+                "trade_count": "",
+                "win_rate": ""
+            }
+        }
+    )
+    print(f"Fields removed - Matched: {result.matched_count}, Modified: {result.modified_count}")
 
-    # Find all duplicate wallet addresses
+    # Step 2: Remove duplicates
+    print("\nAnalyzing users collection for duplicates...")
+
     pipeline = [
         {"$group": {
-            "_id": "$wallet_address",
+            "_id": "$user",
             "count": {"$sum": 1},
             "docs": {"$push": "$_id"}
         }},
         {"$match": {"count": {"$gt": 1}}}
     ]
 
-    duplicates = list(db.profitability_metrics.aggregate(pipeline))
+    duplicates = list(db.users.aggregate(pipeline))
 
     if not duplicates:
-        print("\n✓ No duplicates found! Collection is clean.")
+        print("No duplicates found. Collection is clean.")
+        client.close()
         return
 
-    print(f"\nFound {len(duplicates)} wallet addresses with duplicates")
+    print(f"Found {len(duplicates)} wallet addresses with duplicates")
 
     total_to_delete = sum(len(dup['docs']) - 1 for dup in duplicates)
     print(f"Will remove {total_to_delete} duplicate documents")
 
-    # Show some examples
     print("\nExample duplicates:")
     for i, dup in enumerate(duplicates[:5], 1):
         print(f"  {i}. Wallet: {dup['_id']} - {dup['count']} copies")
@@ -54,33 +72,32 @@ def remove_duplicate_users():
     if len(duplicates) > 5:
         print(f"  ... and {len(duplicates) - 5} more")
 
-    # Confirm before deletion
-    response = input(f"\nProceed with deletion? (yes/no): ")
+    response = input("\nProceed with deletion? (yes/no): ")
 
     if response.lower() != 'yes':
         print("Cancelled. No changes made.")
+        client.close()
         return
 
     print("\nRemoving duplicates...")
     deleted_count = 0
 
     for dup in duplicates:
-        # Keep the first document, delete all others
-        docs_to_delete = dup['docs'][1:]  # Skip first, delete rest
+        docs_to_delete = dup['docs'][1:]
         result = db.users.delete_many({"_id": {"$in": docs_to_delete}})
         deleted_count += result.deleted_count
 
-    print(f"\n✓ Successfully removed {deleted_count} duplicate documents")
-    print(f"✓ Each wallet address now appears only once")
+    print(f"Successfully removed {deleted_count} duplicate documents")
 
-    # Verify
     remaining = db.users.count_documents({})
-    print(f"\nFinal count: {remaining} unique users")
+    print(f"Final count: {remaining} unique users")
+
+    client.close()
 
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("MongoDB Duplicate Remover")
+    print("MongoDB Users Collection Cleaner")
     print("=" * 60)
     print()
-    remove_duplicate_users()
+    clean_users_collection()

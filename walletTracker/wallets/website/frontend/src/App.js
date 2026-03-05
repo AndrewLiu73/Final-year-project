@@ -7,6 +7,8 @@ import PositionBar           from './components/positionBar';
 import ProfitableTradersPage from './pages/profitability';
 import TraderDetailPage      from './pages/TraderDetail';
 import OITabs                from './components/OITabs';
+import WatchlistPage from './pages/watchlist';
+// import TelegramLogin from './components/telegramLogin';
 
 // --- Navigation Header ---
 function NavigationHeader() {
@@ -15,7 +17,16 @@ function NavigationHeader() {
 
   const isMarket  = location.pathname === '/';
   const isTraders = location.pathname.startsWith('/traders') || location.pathname.startsWith('/trader/');
-
+  const [user, setUser] = useState(() => {
+  const id   = localStorage.getItem("user_id");
+  const name = localStorage.getItem("user_name");
+  return id ? { user_id: id, name } : null;
+});
+ const handleLogout = () => {
+    localStorage.removeItem("user_id");
+    localStorage.removeItem("user_name");
+    setUser(null);
+  };
   return (
     <div className="header-container">
       <h1 className="main-title">Hyperliquid Analytics</h1>
@@ -26,12 +37,37 @@ function NavigationHeader() {
         >
           Market Overview
         </button>
+
         <button
           onClick={() => navigate('/traders')}
           className={`nav-button ${isTraders ? 'active' : ''}`}
         >
-          Profitable Traders
+          Traders
         </button>
+        <button
+          onClick={() => navigate('/watchlist')}
+          className={`nav-button ${location.pathname === '/watchlist' ? 'active' : ''}`}
+        >
+          Watchlist
+        </button>
+        {/*<div style={{ marginLeft: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>*/}
+        {/*  {user ? (*/}
+        {/*    <>*/}
+        {/*      <span style={{ color: '#b9bbbe', fontSize: '13px' }}>*/}
+        {/*        Hi, {user.name}*/}
+        {/*      </span>*/}
+        {/*      <button*/}
+        {/*        onClick={handleLogout}*/}
+        {/*        className="nav-button"*/}
+        {/*        style={{ background: '#ed4245', color: 'white', fontSize: '12px' }}*/}
+        {/*      >*/}
+        {/*        Logout*/}
+        {/*      </button>*/}
+        {/*    </>*/}
+        {/*  ) : (*/}
+        {/*    <TelegramLogin onAuth={setUser} />*/}
+        {/*  )}*/}
+        {/*</div>*/}
       </div>
     </div>
   );
@@ -44,6 +80,7 @@ function MarketView() {
   const [period,        setPeriod]        = useState(30);
   const [selectedCoin,  setSelectedCoin]  = useState('ALL');
   const [chartType,     setChartType]     = useState('LONG');
+  const [millionairesCount, setMillionairesCount] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -51,6 +88,13 @@ function MarketView() {
       .then(res => res.json())
       .then(data => { setBiasSummaries(data); setLoading(false); })
       .catch(err  => { console.error(err);    setLoading(false); });
+  }, []);
+
+    useEffect(() => {
+    fetch("http://localhost:8000/api/millionaires")
+      .then(res => res.json())
+      .then(data => setMillionairesCount(data.length))
+      .catch(err => console.error(err));
   }, []);
 
   const now      = new Date();
@@ -99,7 +143,6 @@ function MarketView() {
   return (
     <div>
 
-      {/* Hero stats */}
       {latest && (
         <div className="market-hero">
           <div className="market-stat-card">
@@ -214,21 +257,34 @@ function MarketView() {
 
       {/* Asset breakdown */}
       {latest && (
-        <div className="section-card">
-          <div className="section-title">Asset Breakdown</div>
-          {coins.map(([coin, stats]) => (
-            <PositionBar
-              key={coin}
-              coin={coin}
-              position={`$${((stats.long + stats.short) / 1e9).toFixed(2)}B`}
-              long={`$${(stats.long / 1e9).toFixed(2)}B`}
-              long_pct={stats.long_pct?.toFixed(2)}
-              short={`$${(stats.short / 1e9).toFixed(2)}B`}
-              short_pct={stats.short_pct?.toFixed(2)}
-            />
-          ))}
+    <div className="section-card">
+        <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Asset Breakdown</span>
+            <span style={{
+                fontSize:     '12px',
+                fontWeight:   '600',
+                color:        '#b9bbbe',
+                background:   '#202225',
+                padding:      '4px 10px',
+                borderRadius: '12px',
+            }}>
+                {millionairesCount.toLocaleString()} millionaires tracked
+            </span>
         </div>
-      )}
+        {coins.map(([coin, stats]) => (
+            <PositionBar
+                key={coin}
+                coin={coin}
+                position={`$${((stats.long + stats.short) / 1e9).toFixed(2)}B`}
+                long={`$${(stats.long / 1e9).toFixed(2)}B`}
+                long_pct={stats.long_pct?.toFixed(2)}
+                short={`$${(stats.short / 1e9).toFixed(2)}B`}
+                short_pct={stats.short_pct?.toFixed(2)}
+            />
+        ))}
+    </div>
+)}
+
 
     </div>
   );
@@ -244,6 +300,7 @@ function AppContent() {
           <Route path="/"               element={<MarketView />} />
           <Route path="/traders"        element={<ProfitableTradersPage />} />
           <Route path="/trader/:wallet" element={<TraderDetailPage />} />
+          <Route path="/watchlist" element={<WatchlistPage />} />
         </Routes>
       </div>
     </div>

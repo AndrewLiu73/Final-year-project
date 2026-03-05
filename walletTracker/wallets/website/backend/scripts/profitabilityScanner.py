@@ -23,7 +23,7 @@ class ProfitabilityScanner:
         self.db = self.client['hyperliquid']
 
         self.delay = 60.0 / rpm
-        self.skip = 0
+        self.last_id = None
 
         self.setup_indexes()
 
@@ -45,26 +45,22 @@ class ProfitabilityScanner:
         print("indexes done\n")
 
     def get_wallets_to_scan(self, batch_size=100):
-        total_users = self.db.users.count_documents({"user": {"$exists": True}})
-        self.cycle_complete = False
-
-        if self.skip >= total_users:
-            self.skip = 0
-            self.cycle_complete = True
-            print(f"\nwent through all {total_users} users")
-            print(f"starting again from the top\n")
+        query = {"user": {"$exists": True}}
+        if self.last_id is not None:
+            query["_id"] = {"$lt": self.last_id} #O(log n)
 
         wallets = list(self.db.users.find(
-            {"user": {"$exists": True}},
-            {"user": 1, "_id": 0}
-        ).sort("_id", -1).skip(self.skip).limit(batch_size))
+            query,
+            {"user": 1, "_id": 1}
+        ).sort("_id", -1).limit(batch_size))
 
-        self.skip += len(wallets)
+        if not wallets:
+            self.last_id = None
+            print(f"\nwent through all users, starting again\n")
+            return []
 
-        start = self.skip - len(wallets) + 1
-        end = self.skip
-        print(f"scanning users {start} to {end} of {total_users}")
-
+        self.last_id = wallets[-1]["_id"]
+        print(f"scanning {len(wallets)} users | last_id: {self.last_id}")
         return [w['user'] for w in wallets if 'user' in w]
 
     def _api_post(self, payload, retries=5, timeout=10):
@@ -102,38 +98,47 @@ class ProfitabilityScanner:
         print(f"  [FAILED] {payload.get('type')} after {retries} attempts — skipping")
         return None
 
-    def _fetch_all_fills_from_api(self, wallet_address, max_fills=100000):
-        all_fills = []
-
+    def _fetch_all_fills_from_api(self, wallet_address, max_fills=10000):
         try:
-            fills = self._api_post({"type": "userFills", "user": wallet_address}, timeout=30) or []
-            all_fills.extend(fills)
+            first_page = self._api_post(
+                {"type": "userFills", "user": wallet_address}, timeout=12
+            ) or []
 
-            while len(fills) >= 2000:
-                if len(all_fills) >= max_fills:
-                    print(f"    fill cap reached ({max_fills}) — stopping pagination")
-                    break
+            is_bot_by_fills = False
 
+            if len(first_page) >= 2000:
+                first_ts = min(int(f['time']) for f in first_page)
+                last_ts = max(int(f['time']) for f in first_page)
+                days = max((last_ts - first_ts) / 86400000, 1)
+                tpd = len(first_page) / days
+
+                is_bot_by_fills = tpd > 100 and days < 7 #more than 100 trades per day in less than 7 days
+
+            if is_bot_by_fills:
+                print(f"  [BOT-FILLS] {wallet_address} — high frequency on first page, skipping pagination")
+                return first_page, True
+
+            all_fills = list(first_page)
+            fills = first_page
+
+            while len(fills) >= 2000 and len(all_fills) < max_fills:
                 time.sleep(self.delay)
-
                 oldest_time = min(int(f['time']) for f in fills)
-
                 fills = self._api_post({
                     "type": "userFills",
                     "user": wallet_address,
                     "endTime": oldest_time - 1
-                }, timeout=30) or []
-
+                }, timeout=12) or []
                 if not fills:
                     break
-
                 all_fills.extend(fills)
                 print(f"    paginating fills... {len(all_fills)} total so far")
 
+            return all_fills, False
+
         except Exception as e:
             print(f"  fill fetch error for {wallet_address}: {e}")
-
-        return all_fills
+            return [], False
 
     def _calculate_drawdown(self, fills):
         if not fills:
@@ -249,7 +254,6 @@ class ProfitabilityScanner:
             user_add_rate = 0.0
             fee_tier = 0
             staking_discount = 0.0
-            is_likely_bot = False
 
             if fees_data:
                 user_cross_rate = float(fees_data.get('userCrossRate', 0))
@@ -295,7 +299,7 @@ class ProfitabilityScanner:
                     "master_wallet": master_wallet,
                     "sub_account_count": len(sub_account_addresses),
                     "sub_accounts": sub_account_addresses,
-                    "is_likely_bot": is_likely_bot,
+                    "is_likely_bot":False,
                     "is_vault_depositor": is_vault_depositor,
                     "last_updated": datetime.now()
                 }
@@ -305,18 +309,18 @@ class ProfitabilityScanner:
             traceback.print_exc()
             return None
 
-        fills = self._fetch_all_fills_from_api(wallet_address)
+        fills, is_bot_by_fills = self._fetch_all_fills_from_api(wallet_address)
+
         closing_fills = [f for f in fills if float(f.get('closedPnl', 0)) != 0]
         total_trades = len(closing_fills)
 
         if fills:
             first_trade_day = min(int(f['time']) for f in fills)
             last_trade_day = max(int(f['time']) for f in fills)
-            days_active = max((last_trade_day-first_trade_day)/86400000,1)
+            days_active = max((last_trade_day - first_trade_day) / 86400000, 1)
             trades_per_day = total_trades / days_active
         else:
             trades_per_day = 0
-
 
         winning_trades = sum(1 for f in closing_fills if float(f.get('closedPnl', 0)) > 0)
         losing_trades = sum(1 for f in closing_fills if float(f.get('closedPnl', 0)) < 0)
@@ -324,10 +328,30 @@ class ProfitabilityScanner:
         avg_trade_size = total_volume / total_trades if total_trades > 0 else 0
         max_drawdown = self._calculate_drawdown(fills)
 
-        is_likely_bot = (
-                (user_cross_rate == 0.0 and total_volume > 0)  # active but never takes = pure MM
-                or (total_trades > 10000 and trades_per_day > 50)  # < 50 trades a day with < 10k trades
-        )
+        bot_signals = 0
+        bot_signals += 1 if is_bot_by_fills else 0
+        bot_signals += 1 if (user_cross_rate == 0.0 and total_volume > 0) else 0
+        bot_signals += 1 if trades_per_day > 100 else 0
+        bot_signals += 1 if total_trades > 50000 else 0
+
+        is_likely_bot = bot_signals >= 2
+
+        if is_likely_bot:
+            self.db.profitability_metrics.update_one(
+                {"wallet_address": wallet_address},
+                {"$set": {
+                    "wallet_address": wallet_address,
+                    "is_likely_bot": True,
+                    "has_trading_activity": True,
+                    "account_value": round(account_value, 2),
+                    "total_volume_usdc": round(total_volume, 2),
+                    "user_role": user_role,
+                    "last_updated": datetime.now()
+                }},
+                upsert=True
+            )
+            return "bot"
+
         open_positions = []
         for pos in state.get('assetPositions', []):
             pos_data = pos.get('position', {})
@@ -407,21 +431,21 @@ class ProfitabilityScanner:
 
                 metrics = self.calculate_profitability(wallet)
 
-                if metrics:
+                if metrics == "bot":
+                    bots += 1
+                    processed += 1
+
+                elif metrics:
                     self.db.profitability_metrics.update_one(
                         {"wallet_address": wallet},
                         {"$set": metrics},
                         upsert=True
                     )
-
                     if not metrics.get('has_trading_activity', False):
                         no_activity += 1
                     else:
                         if metrics.get('total_pnl_usdc', 0) > 0:
                             profitable += 1
-                        if metrics.get('is_likely_bot'):
-                            bots += 1
-
                     processed += 1
 
                     if processed % 10 == 0:
@@ -430,7 +454,6 @@ class ProfitabilityScanner:
 
                 else:
                     errors += 1
-
             except Exception as e:
                 err_msg = str(e).lower()
 
@@ -454,8 +477,7 @@ class ProfitabilityScanner:
 
         with open(LOG_PATH, "a") as f:
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            f.write(f"[{ts}] rate_limited: {rate_limited} | errors: {errors}\n")
-
+            f.write(f"[{ts}] processed: {processed} | bots: {bots} | rate_limited: {rate_limited} | errors: {errors}\n")
         return processed
 
     async def run_continuous(self):
