@@ -57,7 +57,7 @@ export default function HistoryChart({ historicalPnl, historicalBalance }) {
                 value: mode === 'pnl' ? item.pnl : item.balance,
             };
         });
-    }, [mode, period, historicalPnl, historicalBalance, periodKey]);
+    }, [mode, historicalPnl, historicalBalance, periodKey]);
 
     const tickFormatter = (ts) => {
         const date = new Date(ts);

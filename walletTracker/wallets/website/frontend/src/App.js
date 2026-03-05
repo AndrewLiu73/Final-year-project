@@ -17,16 +17,16 @@ function NavigationHeader() {
 
   const isMarket  = location.pathname === '/';
   const isTraders = location.pathname.startsWith('/traders') || location.pathname.startsWith('/trader/');
-  const [user, setUser] = useState(() => {
-  const id   = localStorage.getItem("user_id");
-  const name = localStorage.getItem("user_name");
-  return id ? { user_id: id, name } : null;
-});
- const handleLogout = () => {
-    localStorage.removeItem("user_id");
-    localStorage.removeItem("user_name");
-    setUser(null);
-  };
+  // const [user, setUser] = useState(() => {
+//   const id   = localStorage.getItem("user_id");
+//   const name = localStorage.getItem("user_name");
+//   return id ? { user_id: id, name } : null;
+// });
+ // const handleLogout = () => {
+ //    localStorage.removeItem("user_id");
+ //    localStorage.removeItem("user_name");
+ //    setUser(null);
+ //  };
   return (
     <div className="header-container">
       <h1 className="main-title">Hyperliquid Analytics</h1>
