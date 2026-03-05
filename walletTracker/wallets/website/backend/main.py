@@ -1,8 +1,17 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import List, Dict, Optional
 import os
 from dotenv import load_dotenv
+from pydantic import BaseModel
+import hashlib
+import hmac
+import time
+import datetime
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+# from biasAlert import compute_watchlist_bias
+
+scheduler = AsyncIOScheduler()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -15,7 +24,8 @@ USERS_COLLECTION = "users"
 BALANCES_COLLECTION = "balances"
 PROFITABILITY_METRICS_COLLECTION = "profitability_metrics"
 EXCHANGES_OI_COLLECTION = "exchange_oi"
-
+WATCHLISTS_COLLECTION = "watchlists"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,14 +58,25 @@ async def startup_db_client():
         await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("win_rate_percentage", -1)])
         await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("max_drawdown_percentage", 1)])
         await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("open_positions_count", -1)])
+        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("is_likely_bot", 1)])
+        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("has_trading_activity", 1)])
         print("indexes created")
     except Exception as e:
         print(f"index creation: {e}")
+
+        # scheduler.add_job(
+        #     compute_watchlist_bias,
+        #     "interval",
+        #     minutes=15,
+        #     args=[app.mongodb]
+        # )
+        # scheduler.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     app.mongodb_client.close()
+    # scheduler.shutdown()
 
 
 @app.get("/api/millionaires", response_model=List[dict])
@@ -154,90 +175,97 @@ async def get_users_with_balances(
 
 @app.get("/api/users/profitable")
 async def get_profitable_traders(
-        min_winrate:    Optional[float] = Query(None, ge=0, le=100),
-        max_drawdown:   Optional[float] = Query(None),
-        min_balance:    Optional[float] = Query(None, ge=0),
-        max_balance:    Optional[float] = Query(None, ge=0),
-        active_only:    Optional[bool]  = Query(False),
-        sort_by:        str             = Query("pnl", regex="^(balance|pnl|openTrades|winrate|drawdown)$"),
-        sort_direction: str             = Query("desc", regex="^(asc|desc)$"),
-        page:           int             = Query(1, ge=1),
-        page_size:      int             = Query(50, ge=1, le=200)
+    page:           int   = Query(1,     ge=1),
+    page_size:      int   = Query(100,   ge=10, le=200),
+    sort_by:        str   = Query("pnl"),
+    sort_direction: str   = Query("desc"),
+    min_winrate:    float = Query(None),
+    max_drawdown:   float = Query(None),
+    min_balance:    float = Query(None),
+    max_balance:    float = Query(None),
+    active_only:    bool  = Query(False),
+    is_bot:         str   = Query(None),   # "true", "false", or None
 ) -> Dict:
     profitability_coll = app.mongodb[PROFITABILITY_METRICS_COLLECTION]
 
-    query_filter = {"has_trading_activity": True}
+    query = {"has_trading_activity": True}
 
-    if active_only:
-        query_filter["$or"] = [
-            {"account_value":        {"$gt": 0}},
-            {"withdrawable_balance": {"$gt": 0}}
-        ]
+    if min_winrate  is not None: query["win_rate_percentage"]    = {"$gte": min_winrate}
+    if max_drawdown is not None: query["max_drawdown_percentage"] = {"$lte": max_drawdown}
+    if min_balance  is not None: query.setdefault("account_value", {})["$gte"] = min_balance
+    if max_balance  is not None: query.setdefault("account_value", {})["$lte"] = max_balance
+    if active_only:              query["open_positions_count"]    = {"$gt": 0}
 
-    if min_winrate is not None:
-        query_filter["win_rate_percentage"] = {"$gte": min_winrate}
+    # bot filter
+    if is_bot == "true":
+        query["is_likely_bot"] = True
+    elif is_bot == "false":
+        query["is_likely_bot"] = {"$ne": True}
 
-    if max_drawdown is not None:
-        query_filter["max_drawdown_percentage"] = {"$lte": max_drawdown}
-
-    if min_balance is not None and max_balance is not None:
-        query_filter["account_value"] = {"$gte": min_balance, "$lte": max_balance}
-    elif min_balance is not None:
-        query_filter["account_value"] = {"$gte": min_balance}
-    elif max_balance is not None:
-        query_filter["account_value"] = {"$lte": max_balance}
-
-    sort_field_mapping = {
-        "balance":    "account_value",
+    sort_field_map = {
         "pnl":        "total_pnl_usdc",
-        "openTrades": "open_positions_count",
+        "balance":    "account_value",
         "winrate":    "win_rate_percentage",
         "drawdown":   "max_drawdown_percentage",
+        "openTrades": "open_positions_count",
     }
+    sort_field = sort_field_map.get(sort_by, "total_pnl_usdc")
+    sort_dir   = -1 if sort_direction == "desc" else 1
 
-    db_sort_field = sort_field_mapping.get(sort_by, "total_pnl_usdc")
-    sort_order    = -1 if sort_direction == "desc" else 1
-    total_count   = await profitability_coll.count_documents(query_filter)
+    total_count = await profitability_coll.count_documents(query)
+    skip        = (page - 1) * page_size
 
-    cursor  = profitability_coll.find(
-        query_filter, {"_id": 0}
-    ).sort(db_sort_field, sort_order).skip((page - 1) * page_size).limit(page_size)
-    results = await cursor.to_list(length=page_size)
+    cursor = profitability_coll.find(query, {"_id": 0}).sort(sort_field, sort_dir).skip(skip).limit(page_size)
+    docs   = await cursor.to_list(length=page_size)
 
-    mapped_results = []
-    for doc in results:
-        total_pnl   = doc.get("total_pnl_usdc", 0)
-        account_val = doc.get("account_value",   0)
+    traders = []
+    for doc in docs:
+        total_pnl    = doc.get("total_pnl_usdc",  0)
+        total_volume = doc.get("total_volume_usdc", 0)
+        account_val  = doc.get("account_value",    0)
 
-        mapped_results.append({
-            "wallet":             doc.get("wallet_address", ""),
-            "currentBalance":     account_val,
-            "gainDollar":         total_pnl,
-            "gainPercent":        doc.get("profit_percentage",       0),
-            "winrate":            doc.get("win_rate_percentage",     0),
-            "maxDrawdown":        doc.get("max_drawdown_percentage", 0),
-            "isProfitable":       total_pnl > 0,
-            "tradeCount":         doc.get("trade_count",             0),
-            "winningTrades":      doc.get("winning_trades",          0),
-            "losingTrades":       doc.get("losing_trades",           0),
-            "totalVolume":        doc.get("total_volume_usdc",       0),
-            "avgTradeSize":       doc.get("avg_trade_size_usdc",     0),
-            "openPositionsCount": doc.get("open_positions_count",    0),
+        traders.append({
+            "wallet":              doc.get("wallet_address"),
+            "currentBalance":      account_val,
+            "withdrawableBalance": doc.get("withdrawable_balance", 0),
+            "gainDollar":          total_pnl,
+            "gainPercent":         round((total_pnl / total_volume * 100), 2) if total_volume > 0 else 0,
+            "isProfitable":        total_pnl > 0,
+            "winrate":             doc.get("win_rate_percentage",    0),
+            "maxDrawdown":         doc.get("max_drawdown_percentage", 0),
+            "tradeCount":          doc.get("trade_count",            0),
+            "winningTrades":       doc.get("winning_trades",         0),
+            "losingTrades":        doc.get("losing_trades",          0),
+            "openPositionsCount":  doc.get("open_positions_count",   0),
+            "openPositions":       doc.get("open_positions",         []),
+            "totalVolume":         doc.get("total_volume_usdc",      0),
+            "avgTradeSize":        doc.get("avg_trade_size_usdc",    0),
+            "realizedPnl":         doc.get("realized_pnl_usdc",      0),
+            "unrealizedPnl":       doc.get("unrealized_pnl_usdc",    0),
+            "userRole":            doc.get("user_role",              "unknown"),
+            "masterWallet":        doc.get("master_wallet",          None),
+            "subAccounts":         doc.get("sub_accounts",           []),
+            "subAccountCount":     doc.get("sub_account_count",      0),
+            "isLikelyBot":         doc.get("is_likely_bot",          False),
+            "isVaultDepositor":    doc.get("is_vault_depositor",     False),
+            "feeTier":             doc.get("fee_tier",               0),
+            "userCrossRate":       doc.get("user_cross_rate",        0),
+            "userAddRate":         doc.get("user_add_rate",          0),
+            "stakingDiscount":     doc.get("staking_discount",       0),
+            "historicalPnl":       doc.get("historical_pnl",         {}),
+            "historicalBalance":   doc.get("historical_balance",     {}),
+            "lastUpdated":         str(doc.get("last_updated",       "")),
         })
 
     return {
-        "data": mapped_results,
+        "data": traders,
         "pagination": {
+            "total_count": total_count,
             "page":        page,
             "page_size":   page_size,
-            "total_count": total_count,
-            "total_pages": (total_count + page_size - 1) // page_size,
-            "has_more":    page < ((total_count + page_size - 1) // page_size)
-        },
-        "sort_by":        sort_by,
-        "sort_direction": sort_direction
+            "has_more":    (skip + len(traders)) < total_count,
+        }
     }
-
 
 @app.get("/api/users/trader/{wallet_address}")
 async def get_trader_details(wallet_address: str) -> Dict:
@@ -293,14 +321,15 @@ async def get_trader_details(wallet_address: str) -> Dict:
         "open_positions": trader.get("open_positions", []),
         "open_positions_count": trader.get("open_positions_count", 0),
 
-        # account role — ADD THESE
+
         "user_role": trader.get("user_role", "unknown"),
         "master_wallet": trader.get("master_wallet", None),
         "sub_accounts": trader.get("sub_accounts", []),
         "sub_account_count": trader.get("sub_account_count", 0),
-
         "has_trading_activity": trader.get("has_trading_activity", False),
         "last_updated": trader.get("last_updated", None),
+        "historical_pnl": trader.get("historical_pnl", {}),
+        "historical_balance": trader.get("historical_balance", {}),
         "data_source": "cached"
     }
 
@@ -406,8 +435,70 @@ async def get_exchange_oi():
         },
         {"$replaceRoot": {"newRoot": "$doc"}}
     ]
-    oi_coll = app.mongodb[EXCHANGES_OI_COLLECTION]
 
-    for oi_coll in oi_coll :
-        oi_coll ["_id"] = str(oi_coll ["_id"])
-    return oi_coll
+    coll    = app.mongodb[EXCHANGES_OI_COLLECTION]
+    results = await coll.aggregate(pipeline).to_list(length=100)
+
+    grouped = {}
+    for doc in results:
+        doc["_id"] = str(doc["_id"])
+        coin = doc.get("coin", "UNKNOWN")
+        if coin not in grouped:
+            grouped[coin] = []
+        grouped[coin].append({
+            "exchange":          doc.get("exchange"),
+            "oi_usd":            doc.get("oi_usd"),
+            "mark_px":           doc.get("mark_px"),
+            "oi_30min_ago":      doc.get("oi_30min_ago"),
+            "change_pct_30min":  doc.get("change_pct_30min"),
+            "px_change_30min":   doc.get("px_change_30min"),
+            "trend_label":       doc.get("trend_label"),
+            "timestamp":         doc.get("timestamp"),
+        })
+
+    return grouped
+
+class WatchlistItem(BaseModel):
+    user_id: str
+    wallet_address: str
+    label: str = ""
+
+
+@app.get("/api/watchlist/{user_id}")
+async def get_watchlist(user_id: str):
+    col = app.mongodb[WATCHLISTS_COLLECTION]
+    cursor = col.find({"user_id": user_id}, {"_id": 0})
+    items = [doc async for doc in cursor]
+    return items
+
+
+@app.post("/api/watchlist")
+async def add_to_watchlist(item: WatchlistItem):
+    col = app.mongodb[WATCHLISTS_COLLECTION]
+    existing = await col.find_one({"user_id": item.user_id, "wallet_address": item.wallet_address})
+    if existing:
+        raise HTTPException(status_code=409, detail="Already in watchlist")
+    await col.insert_one(item.dict())
+    return {"message": "Added to watchlist"}
+
+
+@app.delete("/api/watchlist/{user_id}/{wallet_address}")
+async def remove_from_watchlist(user_id: str, wallet_address: str):
+    col = app.mongodb[WATCHLISTS_COLLECTION]
+    result = await col.delete_one({"user_id": user_id, "wallet_address": wallet_address})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found in watchlist")
+    return {"message": "Removed from watchlist"}
+
+@app.post("/api/users/telegram")
+async def save_telegram_id(data: dict):
+    users_col = app.mongodb["users"]
+    await users_col.update_one(
+        {"user_id": data["user_id"]},
+        {"$set": {
+            "user_id":     data["user_id"],
+            "telegram_id": data["telegram_id"],
+        }},
+        upsert=True
+    )
+    return {"message": "Telegram ID saved"}

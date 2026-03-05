@@ -13,7 +13,7 @@ MONGO_URI       = os.getenv("MONGO_URI")
 DB_NAME         = "hyperliquid"
 OI_COLLECTION   = "exchange_oi"
 
-TARGET_COINS    = ["BTC", "ETH"]
+TARGET_COINS    = ["BTC", "ETH" ,"HYPE"]
 SPIKE_THRESHOLD = 5.0
 
 

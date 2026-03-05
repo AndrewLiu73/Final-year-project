@@ -296,7 +296,7 @@
 
 .tableHeader {
   display: grid;
-  grid-template-columns: 2fr 1.2fr 1.8fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1.2fr 1.8fr 1fr 1fr 1fr 0.4fr;
   gap: 12px;
   padding: 12px 20px;
   background: #2f3136;
@@ -318,7 +318,7 @@
 
 .tableRow {
   display: grid;
-  grid-template-columns: 2fr 1.2fr 1.8fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1.2fr 1.8fr 1fr 1fr 1fr 0.4fr;
   gap: 12px;
   padding: 10px 20px;
   border-bottom: 1px solid #2f3136;
@@ -529,7 +529,7 @@
 @media (max-width: 1200px) {
   .tableHeader,
   .tableRow {
-    grid-template-columns: 2fr 1fr 1.5fr 0.8fr 0.8fr 0.8fr;
+    grid-template-columns: 2fr 1fr 1.5fr 0.8fr 0.8fr 0.8fr 0.4fr;
   }
 }
 /* Toggle switch for Active Only */
@@ -609,4 +609,25 @@
   color: #5865f2;
   text-decoration: underline;
 }
+.colWatch {
+  width: 40px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.watchStar {
+  color: #4a4a4a;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s ease;
+  user-select: none;
+}
+
+.watchStar:hover {
+  color: #f0b132;
+}
+
 

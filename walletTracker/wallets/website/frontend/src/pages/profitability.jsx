@@ -1,29 +1,31 @@
-'use client';
-
 import { useState, useMemo } from 'react';
 import { useProfitableTraders } from '../hooks/useProfitability';
 import { useNavigate } from 'react-router-dom';
 import styles from './profitability.module.css';
+import useUserId from "../hooks/useUsers";
 
 export default function ProfitableTradersPage() {
   const navigate = useNavigate();
-  const [minWinrateInput, setMinWinrateInput] = useState('');
+  const userId = useUserId();
+
+  const [minWinrateInput, setMinWinrateInput]   = useState('');
   const [maxDrawdownInput, setMaxDrawdownInput] = useState('');
-  const [minBalanceInput, setMinBalanceInput] = useState('');
-  const [maxBalanceInput, setMaxBalanceInput] = useState('');
-  const [pageSizeInput, setPageSizeInput] = useState('100');
+  const [minBalanceInput, setMinBalanceInput]   = useState('');
+  const [maxBalanceInput, setMaxBalanceInput]   = useState('');
+  const [pageSizeInput, setPageSizeInput]       = useState('100');
+  const [botFilterInput, setBotFilterInput]     = useState('default');
 
   const [appliedFilters, setAppliedFilters] = useState({
     minWinrate:  undefined,
     maxDrawdown: undefined,
     minBalance:  undefined,
     maxBalance:  undefined,
+    botFilter:   'default',
   });
 
-  const [pageSize, setPageSize] = useState(100);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const [sortBy, setSortBy] = useState('pnl');
+  const [pageSize, setPageSize]           = useState(100);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [sortBy, setSortBy]               = useState('pnl');
   const [sortDirection, setSortDirection] = useState('desc');
 
   const {
@@ -36,14 +38,26 @@ export default function ProfitableTradersPage() {
     hasMore
   } = useProfitableTraders(appliedFilters, pageSize, sortBy, sortDirection);
 
+  function addToWatchlist(wallet) {
+    if (!userId) return;
+    fetch("http://localhost:8000/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, wallet_address: wallet, label: wallet })
+    }).then(res => {
+      if (res.status === 409) alert("Already in watchlist");
+      else alert("Added to watchlist!");
+    });
+  }
+
   const handleApplyFilters = () => {
     setAppliedFilters({
       minWinrate:  minWinrateInput  ? parseFloat(minWinrateInput)  : undefined,
       maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
       minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
       maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
+      botFilter:   botFilterInput,
     });
-
     const newPageSize = parseInt(pageSizeInput) || 100;
     setPageSize(Math.min(Math.max(newPageSize, 10), 200));
   };
@@ -54,11 +68,13 @@ export default function ProfitableTradersPage() {
     setMinBalanceInput('');
     setMaxBalanceInput('');
     setPageSizeInput('100');
+    setBotFilterInput('default');
     setAppliedFilters({
       minWinrate:  undefined,
       maxDrawdown: undefined,
       minBalance:  undefined,
       maxBalance:  undefined,
+      botFilter:   'default',
     });
     setPageSize(100);
   };
@@ -69,13 +85,12 @@ export default function ProfitableTradersPage() {
       maxDrawdown: maxDrawdownInput ? parseFloat(maxDrawdownInput) : undefined,
       minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
       maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
+      botFilter:   botFilterInput,
     };
-
-    const inputPageSize    = parseInt(pageSizeInput) || 100;
-    const pageSizeChanged  = inputPageSize !== pageSize;
-
+    const inputPageSize   = parseInt(pageSizeInput) || 100;
+    const pageSizeChanged = inputPageSize !== pageSize;
     return JSON.stringify(currentInputs) !== JSON.stringify(appliedFilters) || pageSizeChanged;
-  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, pageSizeInput, appliedFilters, pageSize]);
+  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, pageSizeInput, botFilterInput, appliedFilters, pageSize]);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -86,11 +101,17 @@ export default function ProfitableTradersPage() {
     }
   };
 
-  const formatBalance = (balance) => {
-    if (!balance || balance === 0) return '$0';
-    if (Math.abs(balance) < 1000) return `$${Math.floor(balance)}`;
-    return `$${(balance / 1000).toFixed(1)}k`;
-  };
+const formatBalance = (val) => {
+    if (val === null || val === undefined) return '$0';
+    const abs  = Math.abs(val);
+    const sign = val < 0 ? '-' : '';
+    if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
+    if (abs >= 1_000_000_000)     return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
+    if (abs >= 1_000_000)         return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+    if (abs >= 1_000)             return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+    return `${sign}$${abs.toFixed(0)}`;
+};
+
 
   const handleWalletClick = (wallet) => {
     navigate(`/trader/${wallet}`);
@@ -110,7 +131,6 @@ export default function ProfitableTradersPage() {
     const avgWinrate      = filteredTraders.length > 0
       ? filteredTraders.reduce((sum, t) => sum + (t.winrate || 0), 0) / filteredTraders.length
       : 0;
-
     return {
       loaded:     traders.length,
       total:      pagination.total_count,
@@ -164,7 +184,6 @@ export default function ProfitableTradersPage() {
         </div>
 
         <div className={styles.filterSection}>
-
           <label className={styles.filterLabel}>
             <span className={styles.labelText}>Min Winrate %</span>
             <input
@@ -217,6 +236,20 @@ export default function ProfitableTradersPage() {
           </label>
 
           <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Bot Filter</span>
+            <select
+              value={botFilterInput}
+              onChange={(e) => setBotFilterInput(e.target.value)}
+              className={styles.discordSelect}
+            >
+              <option value="default">All traders</option>
+              <option value="no">Humans only</option>
+              <option value="yes">Bots only</option>
+            </select>
+            <span className={styles.helperText}>Filter by bot detection</span>
+          </label>
+
+          <label className={styles.filterLabel}>
             <span className={styles.labelText}>Traders Per Page</span>
             <select
               value={pageSizeInput}
@@ -240,10 +273,7 @@ export default function ProfitableTradersPage() {
             >
               {hasUnappliedChanges ? 'Apply Filters' : 'Filters Applied'}
             </button>
-            <button
-              onClick={handleClearFilters}
-              className={styles.clearButton}
-            >
+            <button onClick={handleClearFilters} className={styles.clearButton}>
               Clear All
             </button>
           </div>
@@ -293,36 +323,22 @@ export default function ProfitableTradersPage() {
         <div className={styles.tableContainer}>
           <div className={styles.tableHeader}>
             <div className={styles.colWallet}>Wallet</div>
-            <div
-              className={`${styles.colBalance} ${styles.sortable}`}
-              onClick={() => handleSort('balance')}
-            >
+            <div className={`${styles.colBalance} ${styles.sortable}`} onClick={() => handleSort('balance')}>
               Balance <SortIndicator column="balance" />
             </div>
-            <div
-              className={`${styles.colPnl} ${styles.sortable}`}
-              onClick={() => handleSort('pnl')}
-            >
+            <div className={`${styles.colPnl} ${styles.sortable}`} onClick={() => handleSort('pnl')}>
               All-Time PnL <SortIndicator column="pnl" />
             </div>
-            <div
-              className={`${styles.colOpenTrades} ${styles.sortable}`}
-              onClick={() => handleSort('openTrades')}
-            >
+            <div className={`${styles.colOpenTrades} ${styles.sortable}`} onClick={() => handleSort('openTrades')}>
               Open Trades <SortIndicator column="openTrades" />
             </div>
-            <div
-              className={`${styles.colWinrate} ${styles.sortable}`}
-              onClick={() => handleSort('winrate')}
-            >
+            <div className={`${styles.colWinrate} ${styles.sortable}`} onClick={() => handleSort('winrate')}>
               Winrate <SortIndicator column="winrate" />
             </div>
-            <div
-              className={`${styles.colDrawdown} ${styles.sortable}`}
-              onClick={() => handleSort('drawdown')}
-            >
+            <div className={`${styles.colDrawdown} ${styles.sortable}`} onClick={() => handleSort('drawdown')}>
               Max DD <SortIndicator column="drawdown" />
             </div>
+            <div className={styles.colWatch}>Watch</div>
           </div>
 
           <div className={styles.tableBody}>
@@ -334,10 +350,7 @@ export default function ProfitableTradersPage() {
                     <div key={`${trader.wallet}-${index}`} className={styles.tableRow}>
                       <div className={styles.colWallet}>
                         <div className={styles.walletCell}>
-                          <div
-                            className={styles.statusDot}
-                            style={{ background: profitColor }}
-                          />
+                          <div className={styles.statusDot} style={{ background: profitColor }} />
                           <span
                             className={styles.walletText}
                             title={trader.wallet}
@@ -349,26 +362,23 @@ export default function ProfitableTradersPage() {
                       </div>
 
                       <div className={styles.colBalance}>
-                        <span className={styles.valueText}>
-                          {formatBalance(trader.currentBalance)}
-                        </span>
+                        <span className={styles.valueText}>{formatBalance(trader.currentBalance)}</span>
                       </div>
 
-                      <div className={styles.colPnl}>
-                        <div className={styles.pnlCell}>
-                          <span className={styles.pnlValue} style={{ color: profitColor }}>
-                            {trader.gainDollar > 0 ? '+' : ''}{formatBalance(Math.abs(trader.gainDollar))}
-                          </span>
-                          <span className={styles.pnlPercent} style={{ color: profitColor }}>
-                            ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent.toFixed(1)}%)
-                          </span>
-                        </div>
+                     <div className={styles.colPnl}>
+                          <div className={styles.pnlCell}>
+                              <span className={styles.pnlValue} style={{ color: profitColor }}>
+                                  {trader.gainDollar > 0 ? '+' : ''}{formatBalance(trader.gainDollar)}
+                              </span>
+                              <span className={styles.pnlPercent} style={{ color: profitColor }}>
+                                  ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent.toFixed(1)}%)
+                              </span>
+                          </div>
                       </div>
+
 
                       <div className={styles.colOpenTrades}>
-                        <span className={styles.valueText}>
-                          {trader.openPositionsCount || 0}
-                        </span>
+                        <span className={styles.valueText}>{trader.openPositionsCount || 0}</span>
                       </div>
 
                       <div className={styles.colWinrate}>
@@ -382,17 +392,23 @@ export default function ProfitableTradersPage() {
                           {trader.maxDrawdown ? `${trader.maxDrawdown.toFixed(1)}%` : '-'}
                         </span>
                       </div>
+
+                       <div className={styles.colWatch}>
+                        <span
+                          className={styles.watchStar}
+                          onClick={() => addToWatchlist(trader.wallet)}
+                          title="Add to watchlist"
+                        >
+                          ★
+                        </span>
+                      </div>
                     </div>
                   );
                 })}
 
                 {hasMore && (
                   <div className={styles.loadMoreRow}>
-                    <button
-                      onClick={loadMore}
-                      disabled={loading}
-                      className={styles.loadMoreBtn}
-                    >
+                    <button onClick={loadMore} disabled={loading} className={styles.loadMoreBtn}>
                       {loading ? (
                         <>
                           <div className={styles.smallSpinner}></div>
