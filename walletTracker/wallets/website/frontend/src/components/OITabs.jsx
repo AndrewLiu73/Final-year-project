@@ -368,13 +368,13 @@ function MillionaireTab({ aggregate }) {
     </div>
   );
 }
+const TARGETS = ['BTC', 'ETH', 'HYPE'];
 
 function HyperliquidOITab({ backendData }) {
   const [liveData, setLiveData] = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
 
-  const TARGETS = ['BTC', 'ETH', 'HYPE'];
 
   useEffect(() => {
     const fetchOI = async () => {
