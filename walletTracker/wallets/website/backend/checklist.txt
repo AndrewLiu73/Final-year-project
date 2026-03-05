@@ -1,0 +1,12 @@
+Add if the account is sub or master DONE
+add bot likely DONE
+add vault depositor DONE
+fix balance on frontend DONE
+fix active trader or remove DONE
+change eth or hype colours DONE
+add other exchanges to OI DONE
+add how many millionaires are being tracked DONE
+fix how numbers are displayed form k to mil DONE
+rate limit counter DONE
+add when user changes bias
+
