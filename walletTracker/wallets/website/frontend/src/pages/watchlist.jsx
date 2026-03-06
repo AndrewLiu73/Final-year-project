@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useUserId from '../hooks/useUsers';
+import { formatBalance } from '../utils/formatters';
 import styles from './profitability.module.css';
 import watchStyles from './watchlist.module.css';
 
@@ -66,17 +67,6 @@ export default function Watchlist() {
         fetch(`http://localhost:8000/api/watchlist/${userId}/${wallet}`, { method: 'DELETE' })
             .then(() => setTraders(prev => prev.filter(t => t.wallet !== wallet)));
     }
-
-    const formatBalance = (val) => {
-        if (val === null || val === undefined) return '$0';
-        const abs  = Math.abs(val);
-        const sign = val < 0 ? '-' : '';
-        if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
-        if (abs >= 1_000_000_000)     return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
-        if (abs >= 1_000_000)         return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-        if (abs >= 1_000)             return `${sign}$${(abs / 1_000).toFixed(1)}K`;
-        return `${sign}$${abs.toFixed(0)}`;
-    };
 
     const handleSort = (column) => {
         if (sortBy === column) {
