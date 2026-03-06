@@ -1,25 +1,3 @@
-/* ─── Discord Tokens (also defined in index.css — duplicated here as fallback) ─── */
-:root {
-  --bg-0:      #202225;
-  --bg-1:      #2f3136;
-  --bg-2:      #36393f;
-  --bg-3:      #40444b;
-  --text-0:    #ffffff;
-  --text-1:    #dcddde;
-  --text-2:    #b9bbbe;
-  --text-3:    #96989d;
-  --text-4:    #72767d;
-  --accent:    #5865f2;
-  --accent-h:  #4752c4;
-  --green-d:   #3ba55d;
-  --red:       #ed4245;
-  --border:    rgba(0,0,0,0.3);
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --shadow:    0 4px 16px rgba(0,0,0,0.4);
-  --font:      'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-}
-
 /* ─── App Shell ─── */
 .app-container {
   min-height: 100vh;

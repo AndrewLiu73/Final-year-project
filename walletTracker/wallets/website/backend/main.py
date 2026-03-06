@@ -4,10 +4,6 @@ from typing import List, Dict, Optional
 import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
-import hashlib
-import hmac
-import time
-import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # from biasAlert import compute_watchlist_bias
 
