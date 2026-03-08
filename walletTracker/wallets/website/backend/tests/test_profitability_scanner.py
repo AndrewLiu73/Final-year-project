@@ -289,43 +289,52 @@ class TestAsyncRateLimiter:
 
 class TestSkipWallet:
 
-    def test_skip_recently_scanned(self, scanner):
+    @pytest.mark.asyncio
+    async def test_skip_recently_scanned(self, scanner):
         """Wallet scanned 1 hour ago should be skipped (default 6h threshold)"""
         scanner.skip_age_hours = 6
         scanner.db = MagicMock()
         scanner.db.profitability_metrics.find_one.return_value = {
             "last_updated": datetime.now() - timedelta(hours=1)
         }
-        assert scanner._should_skip_wallet("0xabc") is True
+        assert await scanner._should_skip_wallet("0xabc") is True
 
-    def test_dont_skip_old_scan(self, scanner):
+    @pytest.mark.asyncio
+    async def test_dont_skip_old_scan(self, scanner):
         """Wallet scanned 10 hours ago should NOT be skipped"""
         scanner.skip_age_hours = 6
         scanner.db = MagicMock()
         scanner.db.profitability_metrics.find_one.return_value = {
             "last_updated": datetime.now() - timedelta(hours=10)
         }
-        assert scanner._should_skip_wallet("0xabc") is False
+        assert await scanner._should_skip_wallet("0xabc") is False
 
-    def test_dont_skip_never_scanned(self, scanner):
+    @pytest.mark.asyncio
+    async def test_dont_skip_never_scanned(self, scanner):
         """Wallet never scanned should NOT be skipped"""
         scanner.skip_age_hours = 6
         scanner.db = MagicMock()
         scanner.db.profitability_metrics.find_one.return_value = None
-        assert scanner._should_skip_wallet("0xabc") is False
+        assert await scanner._should_skip_wallet("0xabc") is False
 
     def test_skip_disabled_when_zero(self, scanner):
         """skip_age_hours=0 disables skipping entirely"""
         scanner.skip_age_hours = 0
         scanner.db = MagicMock()
-        # Should return False without even querying the DB
-        assert scanner._should_skip_wallet("0xabc") is False
+
+    @pytest.mark.asyncio
+    async def test_skip_disabled_when_zero_async(self, scanner):
+        """skip_age_hours=0 disables skipping entirely"""
+        scanner.skip_age_hours = 0
+        scanner.db = MagicMock()
+        assert await scanner._should_skip_wallet("0xabc") is False
         scanner.db.profitability_metrics.find_one.assert_not_called()
 
-    def test_dont_skip_missing_last_updated(self, scanner):
+    @pytest.mark.asyncio
+    async def test_dont_skip_missing_last_updated(self, scanner):
         """Entry exists but has no last_updated — should NOT be skipped"""
         scanner.skip_age_hours = 6
         scanner.db = MagicMock()
         scanner.db.profitability_metrics.find_one.return_value = {}
-        assert scanner._should_skip_wallet("0xabc") is False
+        assert await scanner._should_skip_wallet("0xabc") is False
 

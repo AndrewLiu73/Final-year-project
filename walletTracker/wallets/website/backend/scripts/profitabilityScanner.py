@@ -96,10 +96,11 @@ class ProfitabilityScanner:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    def _should_skip_wallet(self, wallet_address):
+    async def _should_skip_wallet(self, wallet_address):
         if self.skip_age_hours <= 0:
             return False
-        existing = self.db.profitability_metrics.find_one(
+        existing = await asyncio.to_thread(
+            self.db.profitability_metrics.find_one,
             {"wallet_address": wallet_address},
             {"last_updated": 1}
         )
@@ -378,7 +379,8 @@ class ProfitabilityScanner:
         is_likely_bot = bot_signals >= 2
 
         if is_likely_bot:
-            self.db.profitability_metrics.update_one(
+            await asyncio.to_thread(
+                self.db.profitability_metrics.update_one,
                 {"wallet_address": wallet_address},
                 {"$set": {
                     "wallet_address": wallet_address,
@@ -475,7 +477,7 @@ class ProfitabilityScanner:
         async def process_wallet(wallet):
             async with sem:
                 try:
-                    if self._should_skip_wallet(wallet):
+                    if await self._should_skip_wallet(wallet):
                         async with stats_lock:
                             stats["skipped"] += 1
                         return
@@ -488,7 +490,8 @@ class ProfitabilityScanner:
                             stats["processed"] += 1
 
                         elif metrics:
-                            self.db.profitability_metrics.update_one(
+                            await asyncio.to_thread(
+                                self.db.profitability_metrics.update_one,
                                 {"wallet_address": wallet},
                                 {"$set": metrics},
                                 upsert=True
@@ -518,7 +521,11 @@ class ProfitabilityScanner:
                             print(f"  failed on {wallet}: {e}")
                             stats["errors"] += 1
 
-        await asyncio.gather(*[process_wallet(w) for w in wallets], return_exceptions=True)
+        results = await asyncio.gather(*[process_wallet(w) for w in wallets], return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"  [UNHANDLED] wallet {wallets[i]}: {result}")
+                stats["errors"] += 1
 
         print(f"batch done:")
         print(f"  processed:    {stats['processed']}")
