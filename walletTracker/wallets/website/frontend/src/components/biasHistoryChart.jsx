@@ -3,12 +3,7 @@ import {
     Tooltip, Legend, ResponsiveContainer,
     CartesianGrid
 } from 'recharts';
-
-const COIN_COLOURS = {
-    BTC:  '#f7931a',
-    ETH:  '#627eea',
-    HYPE: '#a300b8',
-};
+import { COIN_COLOURS } from '../utils/constants';
 
 const ALL_COINS = ['BTC', 'ETH', 'HYPE'];
 
