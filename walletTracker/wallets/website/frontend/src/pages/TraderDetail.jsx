@@ -5,28 +5,7 @@ import styles from './TraderDetail.module.css';
 import { useTraderData }            from '../hooks/useWalletData';
 import { calculateDirectionalBias } from '../utils/biasUtils';
 import HistoryChart                 from '../components/balanceChart';
-
-const formatBalance = (val) => {
-    if (val === null || val === undefined) return '$0';
-    const abs  = Math.abs(val);
-    const sign = val < 0 ? '-' : '';
-    if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
-    if (abs >= 1_000_000_000)     return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
-    if (abs >= 1_000_000)         return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-    if (abs >= 1_000)             return `${sign}$${(abs / 1_000).toFixed(2)}K`;
-    return `${sign}$${abs.toFixed(0)}`;
-};
-
-const formatLargeNumber = (val) => {
-    if (!val) return '0';
-    const abs  = Math.abs(val);
-    const sign = val < 0 ? '-' : '';
-    if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
-    if (abs >= 1_000_000_000)     return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
-    if (abs >= 1_000_000)         return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-    if (abs >= 1_000)             return `${sign}$${(abs / 1_000).toFixed(2)}K`;
-    return `${sign}${Math.floor(abs)}`;
-};
+import { formatBalance }            from '../utils/formatters';
 
 export default function TraderDetailPage() {
     const { wallet }                     = useParams();
@@ -201,7 +180,7 @@ export default function TraderDetailPage() {
                         <div className={styles.metric}>
                             <span className={styles.metricLabel}>Total Volume</span>
                             <span className={styles.metricValue}>
-                                ${formatLargeNumber(trader.total_volume_usdc)}
+                                {formatBalance(trader.total_volume_usdc)}
                             </span>
                         </div>
                         <div className={styles.metric}>

@@ -4,3 +4,5 @@ frontend/.env
 .env
 .env.*
 *.db
+build/
+node_modules/
