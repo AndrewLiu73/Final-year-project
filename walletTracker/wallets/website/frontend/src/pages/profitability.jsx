@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo,useEffect } from 'react';
 import { useProfitableTraders } from '../hooks/useProfitability';
 import { useNavigate } from 'react-router-dom';
 import styles from './profitability.module.css';
 import useUserId from "../hooks/useUsers";
 import { formatBalance } from '../utils/formatters';
+import API_BASE from '../config';
 
 export default function ProfitableTradersPage() {
   const navigate = useNavigate();
@@ -23,6 +24,34 @@ export default function ProfitableTradersPage() {
     maxBalance:  undefined,
     botFilter:   'default',
   });
+  // restore filters on mount — add this useEffect near the top
+
+useEffect(() => {
+    const saved = sessionStorage.getItem('traderFilters');
+    if (!saved) return;
+
+    const f = JSON.parse(saved);
+    setMinWinrateInput(f.minWinrateInput   ?? '');
+    setMaxDrawdownInput(f.maxDrawdownInput ?? '');
+    setMinBalanceInput(f.minBalanceInput   ?? '');
+    setMaxBalanceInput(f.maxBalanceInput   ?? '');
+    setPageSizeInput(f.pageSizeInput       ?? '100');
+    setBotFilterInput(f.botFilterInput     ?? 'default');
+    setSortBy(f.sortBy                     ?? 'pnl');
+    setSortDirection(f.sortDirection       ?? 'desc');
+    setSearchQuery(f.searchQuery           ?? '');
+
+    // also apply them immediately
+    setAppliedFilters({
+        minWinrate:  f.minWinrateInput  ? parseFloat(f.minWinrateInput)  : undefined,
+        maxDrawdown: f.maxDrawdownInput ? parseFloat(f.maxDrawdownInput) : undefined,
+        minBalance:  f.minBalanceInput  ? parseFloat(f.minBalanceInput)  : undefined,
+        maxBalance:  f.maxBalanceInput  ? parseFloat(f.maxBalanceInput)  : undefined,
+        botFilter:   f.botFilterInput   ?? 'default',
+    });
+    setPageSize(parseInt(f.pageSizeInput) || 100);
+}, []); // empty deps = runs once on mount
+
 
   const [pageSize, setPageSize]           = useState(100);
   const [searchQuery, setSearchQuery]     = useState('');
@@ -41,7 +70,7 @@ export default function ProfitableTradersPage() {
 
   function addToWatchlist(wallet) {
     if (!userId) return;
-    fetch("http://localhost:8000/api/watchlist", {
+    fetch(`${API_BASE}/api/watchlist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_id: userId, wallet_address: wallet, label: wallet })
@@ -102,9 +131,22 @@ export default function ProfitableTradersPage() {
     }
   };
 
-  const handleWalletClick = (wallet) => {
+
+const handleWalletClick = (wallet) => {
+    sessionStorage.setItem('traderFilters', JSON.stringify({
+        minWinrateInput,
+        maxDrawdownInput,
+        minBalanceInput,
+        maxBalanceInput,
+        pageSizeInput,
+        botFilterInput,
+        sortBy,
+        sortDirection,
+        searchQuery,
+    }));
     navigate(`/trader/${wallet}`);
-  };
+};
+
 
   const filteredTraders = useMemo(() => {
     if (!searchQuery) return traders;
@@ -183,7 +225,7 @@ export default function ProfitableTradersPage() {
               className={styles.discordInput}
               min="0"
               max="100"
-              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyFilters()}
             />
           </label>
 
@@ -195,7 +237,7 @@ export default function ProfitableTradersPage() {
               value={maxDrawdownInput}
               onChange={(e) => setMaxDrawdownInput(e.target.value)}
               className={styles.discordInput}
-              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyFilters()}
             />
             <span className={styles.helperText}>Lower is better</span>
           </label>
@@ -208,7 +250,7 @@ export default function ProfitableTradersPage() {
               value={minBalanceInput}
               onChange={(e) => setMinBalanceInput(e.target.value)}
               className={styles.discordInput}
-              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyFilters()}
             />
           </label>
 
@@ -220,7 +262,7 @@ export default function ProfitableTradersPage() {
               value={maxBalanceInput}
               onChange={(e) => setMaxBalanceInput(e.target.value)}
               className={styles.discordInput}
-              onKeyPress={(e) => e.key === 'Enter' && handleApplyFilters()}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyFilters()}
             />
           </label>
 

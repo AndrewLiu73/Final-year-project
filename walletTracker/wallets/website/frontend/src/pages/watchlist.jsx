@@ -4,30 +4,30 @@ import useUserId from '../hooks/useUsers';
 import { formatBalance } from '../utils/formatters';
 import styles from './profitability.module.css';
 import watchStyles from './watchlist.module.css';
+import API_BASE from '../config';
 
 export default function Watchlist() {
     const navigate = useNavigate();
-    const userId   = useUserId();
+    const userId = useUserId();
 
-    const [traders,     setTraders]     = useState([]);
-    const [loading,     setLoading]     = useState(true);
+    const [traders, setTraders] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [sortBy,      setSortBy]      = useState('pnl');
+    const [sortBy, setSortBy] = useState('pnl');
     const [sortDirection, setSortDirection] = useState('desc');
 
-    // add these two here, inside the component
     const [telegramId, setTelegramId] = useState(localStorage.getItem("telegram_id") || "");
-    const [tgSaved,    setTgSaved]    = useState(!!localStorage.getItem("telegram_id"));
+    const [tgSaved, setTgSaved] = useState(!!localStorage.getItem("telegram_id"));
 
     useEffect(() => {
         if (!userId) return;
         async function loadWatchlist() {
             setLoading(true);
             try {
-                const res            = await fetch(`http://localhost:8000/api/watchlist/${userId}`);
+                const res            = await fetch(`${API_BASE}/api/watchlist/${userId}`);
                 const watchlistItems = await res.json();
                 const traderPromises = watchlistItems.map(item =>
-                    fetch(`http://localhost:8000/api/users/trader/${item.wallet_address}`)
+                    fetch(`${API_BASE}/api/users/trader/${item.wallet_address}`)
                         .then(r => r.json())
                         .then(data => ({
                             wallet:             data.wallet_address,
@@ -56,7 +56,7 @@ export default function Watchlist() {
     const saveTelegramId = () => {
         if (!telegramId) return;
         localStorage.setItem("telegram_id", telegramId);
-        fetch("http://localhost:8000/api/users/telegram", {
+        fetch(`${API_BASE}/api/users/telegram`, {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
             body:    JSON.stringify({ user_id: userId, telegram_id: telegramId })
@@ -64,7 +64,7 @@ export default function Watchlist() {
     };
 
     function removeFromWatchlist(wallet) {
-        fetch(`http://localhost:8000/api/watchlist/${userId}/${wallet}`, { method: 'DELETE' })
+        fetch(`${API_BASE}/api/watchlist/${userId}/${wallet}`, { method: 'DELETE' })
             .then(() => setTraders(prev => prev.filter(t => t.wallet !== wallet)));
     }
 

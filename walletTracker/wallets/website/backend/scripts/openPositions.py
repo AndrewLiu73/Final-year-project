@@ -168,8 +168,8 @@ async def main():
                     f"[{stats['short_wallets']} wallets]"
                 )
 
-            print("Next update in 20 minutes")
-            await asyncio.sleep(20 * 60)
+            print("Next update in 24 hours")
+            await asyncio.sleep(24 * 60 * 60)
 
         except Exception as e:
             print(f"[ERROR] {e} -- sleeping 2 minutes before retry")

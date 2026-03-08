@@ -372,7 +372,7 @@ def check_database_sample():
 
 
 if __name__ == "__main__":
-    test_wallet = "0x6ba2ad09aa6629a423b59b71f3564d84ce66c001"
+    test_wallet = "0x200000000000000000000000000000000000010c"
 
     debug_wallet_unrealized_pnl(test_wallet)
     check_database_sample()

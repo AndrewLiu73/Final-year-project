@@ -20,7 +20,20 @@ def clean_users_collection():
 
     print("Connecting to MongoDB...")
     client = MongoClient(mongo_uri)
+
     db = client['hyperliquid']
+    # run once in a script to backfill missing fields
+    db.profitability_metrics.update_many(
+        {"is_likely_bot": {"$exists": False}},
+        {"$set": {"is_likely_bot": False}}
+    )
+    db.profitability_metrics.update_many(
+        {"is_vault_depositor": {"$exists": False}},
+        {"$set": {"is_vault_depositor": False}}
+    )
+    doc = db.profitability_metrics.find_one({"wallet_address": "0xecb63caa47c7c4e77f60f1ce858cf28dc2b82b00"})
+    print(doc.get("is_likely_bot"))
+    print(doc.get("is_vault_depositor"))
 
     # Step 1: Remove unwanted fields
     print("\nRemoving extra fields from users collection...")

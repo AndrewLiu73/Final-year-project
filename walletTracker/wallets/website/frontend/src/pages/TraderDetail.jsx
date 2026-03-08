@@ -2,16 +2,16 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './TraderDetail.module.css';
-import { useTraderData }            from '../hooks/useWalletData';
+import { useTraderData } from '../hooks/useWalletData';
 import { calculateDirectionalBias } from '../utils/biasUtils';
-import HistoryChart                 from '../components/balanceChart';
-import { formatBalance }            from '../utils/formatters';
+import { formatBalance } from '../utils/formatters';
+import HistoryChart from '../components/balanceChart';
+
 
 export default function TraderDetailPage() {
-    const { wallet }                     = useParams();
-    const navigate                       = useNavigate();
-    const { data: trader, loading, error,
-            dataSource }                 = useTraderData(wallet);
+    const { wallet } = useParams();
+    const navigate = useNavigate();
+    const { data: trader, loading, error, dataSource } = useTraderData(wallet);
 
     const copyToClipboard = () => {
         if (wallet) {
@@ -73,13 +73,10 @@ export default function TraderDetailPage() {
                     {isProfitable ? 'Profitable' : 'Losing'}
                 </div>
                 <div className={styles.dataSourceBadge} style={{
-                    background:   dataSource === 'live' ? '#3ba55d' : '#f0b132',
-                    padding:      '6px 12px',
-                    borderRadius: '12px',
-                    fontSize:     '12px',
-                    fontWeight:   '600',
-                    color:        'white',
-                    marginLeft:   '12px'
+                    background: dataSource === 'live' ? '#3ba55d' : '#f0b132',
+                    padding: '6px 12px', borderRadius: '12px',
+                    fontSize: '12px', fontWeight: '600',
+                    color: 'white', marginLeft: '12px'
                 }}>
                     {dataSource === 'live' ? 'LIVE' : 'CACHED'}
                 </div>
@@ -180,7 +177,7 @@ export default function TraderDetailPage() {
                         <div className={styles.metric}>
                             <span className={styles.metricLabel}>Total Volume</span>
                             <span className={styles.metricValue}>
-                                {formatBalance(trader.total_volume_usdc)}
+                                ${formatBalance(trader.total_volume_usdc)}
                             </span>
                         </div>
                         <div className={styles.metric}>

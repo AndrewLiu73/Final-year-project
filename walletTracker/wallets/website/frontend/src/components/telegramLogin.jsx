@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
+import API_BASE from '../config';
 
 export default function TelegramLogin({ onAuth }) {
     useEffect(() => {
         window.onTelegramAuth = (user) => {
-            fetch("http://localhost:8000/api/auth/telegram", {
-                method:  "POST",
-                headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify(user),
+            fetch(`${API_BASE}/api/auth/telegram`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(user),
             })
             .then(res => res.json())
             .then(data => {
@@ -16,11 +17,11 @@ export default function TelegramLogin({ onAuth }) {
             });
         };
 
-        const script    = document.createElement("script");
-        script.src      = "https://telegram.org/js/telegram-widget.js?22";
+        const script = document.createElement("script");
+        script.src = "https://telegram.org/js/telegram-widget.js?22";
         script.setAttribute("data-telegram-login", "HyperTrack_Alert_Bot");
-        script.setAttribute("data-size",           "large");
-        script.setAttribute("data-onauth",         "onTelegramAuth(user)");
+        script.setAttribute("data-size", "large");
+        script.setAttribute("data-onauth", "onTelegramAuth(user)");
         script.setAttribute("data-request-access", "write");
         script.async = true;
         document.getElementById("tg-login").appendChild(script);

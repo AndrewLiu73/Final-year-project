@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import styles from './OITabs.module.css';
 import { COIN_COLOURS } from '../utils/constants';
+import API_BASE from '../config';
 
-const GREEN  = '#3ba55d';
-const RED    = '#ed4245';
+const GREEN = '#3ba55d';
+const RED = '#ed4245';
 
 const TREND_COLOURS = {
-  'Building Long':     '#3ba55d',
-  'Squeeze Risk':      '#ed4245',
+  'Building Long': '#3ba55d',
+  'Squeeze Risk': '#ed4245',
   'Crowded / Fragile': '#f0a500',
-  'Short Covering':    '#00b4d8',
-  'Deleveraging':      '#72767d',
-  'Neutral':           '#96989d',
+  'Short Covering': '#00b4d8',
+  'Deleveraging': '#72767d',
+  'Neutral': '#96989d',
 };
 
 const TARGET_COINS = ['BTC', 'ETH'];
@@ -186,17 +187,22 @@ function TrendBadge({ label }) {
 }
 
 
-function ExchangeTab({ exchange, backendData }) {
-  const [liveData, setLiveData] = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
+function ExchangeTab({ exchange, backendData, cachedData, onDataFetched }) {
+  const [liveData, setLiveData] = useState(cachedData || null);
+  const [loading, setLoading] = useState(!cachedData);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (cachedData) {
+      setLiveData(cachedData);
+      setLoading(false);
+      return;
+    }
     const fetcher = EXCHANGE_FETCHERS[exchange];
     fetcher()
-      .then(d  => { setLiveData(d); setLoading(false); })
+      .then(d  => { setLiveData(d); onDataFetched(exchange, d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [exchange]);
+  }, [exchange, cachedData, onDataFetched]);
 
   if (loading) return (
     <div className={styles.loadingWrapper}>
@@ -368,18 +374,23 @@ function MillionaireTab({ aggregate }) {
 const TABS = [
   { key: 'millionaire', label: 'Millionaire Bias' },
   { key: 'Hyperliquid', label: 'Hyperliquid OI' },
-  { key: 'Binance',     label: 'Binance OI' },
-  { key: 'Bybit',       label: 'Bybit OI' },
-  { key: 'OKX',         label: 'OKX OI' },
-  { key: 'Deribit',     label: 'Deribit OI' },
+  { key: 'Binance', label: 'Binance OI' },
+  { key: 'Bybit', label: 'Bybit OI' },
+  { key: 'OKX', label: 'OKX OI' },
+  { key: 'Deribit', label: 'Deribit OI' },
 ];
 
 export default function OITabs({ aggregate }) {
-  const [tab,         setTab]         = useState('millionaire');
+  const [tab, setTab] = useState('millionaire');
   const [backendData, setBackendData] = useState(null);
+  const exchangeCache = useRef({});
+
+  const handleDataFetched = React.useCallback((exchange, data) => {
+    exchangeCache.current[exchange] = { data, ts: Date.now() };
+  }, []);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/exchange-oi')
+    fetch(`${API_BASE}/api/exchange-oi`)
       .then(res => res.json())
       .then(setBackendData)
       .catch(e  => console.error('Backend OI fetch failed:', e));
@@ -400,9 +411,19 @@ export default function OITabs({ aggregate }) {
       </div>
 
       {tab === 'millionaire' && <MillionaireTab aggregate={aggregate} />}
-      {['Hyperliquid', 'Binance', 'Bybit', 'OKX', 'Deribit'].map(ex => (
-        tab === ex && <ExchangeTab key={ex} exchange={ex} backendData={backendData} />
-      ))}
+      {['Hyperliquid', 'Binance', 'Bybit', 'OKX', 'Deribit'].map(ex => {
+        const cached = exchangeCache.current[ex];
+        const isStale = cached && (Date.now() - cached.ts) > 60000;
+        return tab === ex && (
+          <ExchangeTab
+            key={ex}
+            exchange={ex}
+            backendData={backendData}
+            cachedData={isStale ? null : cached?.data || null}
+            onDataFetched={handleDataFetched}
+          />
+        );
+      })}
     </div>
   );
 }

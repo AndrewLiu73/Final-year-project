@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
+import API_BASE from './config';
 
-import BiasHistoryChart      from './components/biasHistoryChart';
-import PositionBar           from './components/positionBar';
+import BiasHistoryChart from './components/biasHistoryChart';
+import PositionBar from './components/positionBar';
 import ProfitableTradersPage from './pages/profitability';
-import TraderDetailPage      from './pages/TraderDetail';
-import OITabs                from './components/OITabs';
+import TraderDetailPage from './pages/TraderDetail';
+import OITabs from './components/OITabs';
 import WatchlistPage from './pages/watchlist';
+import ErrorBoundary from './components/ErrorBoundary';
 // import TelegramLogin from './components/telegramLogin';
 
 // --- Navigation Header ---
@@ -76,22 +78,22 @@ function NavigationHeader() {
 // --- Market View ---
 function MarketView() {
   const [biasSummaries, setBiasSummaries] = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [period,        setPeriod]        = useState(30);
-  const [selectedCoin,  setSelectedCoin]  = useState('ALL');
-  const [chartType,     setChartType]     = useState('LONG');
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState(30);
+  const [selectedCoin, setSelectedCoin] = useState('ALL');
+  const [chartType, setChartType] = useState('LONG');
   const [millionairesCount, setMillionairesCount] = useState(0);
 
   useEffect(() => {
     setLoading(true);
-    fetch("http://localhost:8000/api/bias-aggregate")
+    fetch(`${API_BASE}/api/bias-aggregate`)
       .then(res => res.json())
       .then(data => { setBiasSummaries(data); setLoading(false); })
       .catch(err  => { console.error(err);    setLoading(false); });
   }, []);
 
     useEffect(() => {
-    fetch("http://localhost:8000/api/millionaires")
+    fetch(`${API_BASE}/api/millionaires`)
       .then(res => res.json())
       .then(data => setMillionairesCount(data.length))
       .catch(err => console.error(err));
@@ -296,12 +298,14 @@ function AppContent() {
     <div className="app-container">
       <NavigationHeader />
       <div className="content-container">
-        <Routes>
-          <Route path="/"               element={<MarketView />} />
-          <Route path="/traders"        element={<ProfitableTradersPage />} />
-          <Route path="/trader/:wallet" element={<TraderDetailPage />} />
-          <Route path="/watchlist" element={<WatchlistPage />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/"               element={<MarketView />} />
+            <Route path="/traders"        element={<ProfitableTradersPage />} />
+            <Route path="/trader/:wallet" element={<TraderDetailPage />} />
+            <Route path="/watchlist" element={<WatchlistPage />} />
+          </Routes>
+        </ErrorBoundary>
       </div>
     </div>
   );
