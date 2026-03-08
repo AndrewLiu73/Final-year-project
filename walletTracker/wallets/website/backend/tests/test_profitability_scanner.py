@@ -2,8 +2,11 @@
 Tests for profitability scanner calculations
 """
 import pytest
+import asyncio
+import time
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
-from scripts.profitabilityScanner import ProfitabilityScanner
+from scripts.profitabilityScanner import ProfitabilityScanner, AsyncRateLimiter
 
 
 # ── shared fixture ────────────────────────────────────────────────────────────
@@ -244,4 +247,85 @@ class TestBotDetection:
 
     def test_both_zero_is_bot(self):
         assert self._is_bot(0.0, 0.0) is True
+
+
+# ── rate limiter tests ────────────────────────────────────────────────────────
+
+class TestAsyncRateLimiter:
+
+    def test_initial_interval(self):
+        """min_interval should be 60/rpm seconds"""
+        rl = AsyncRateLimiter(200)
+        assert rl.min_interval == pytest.approx(0.3, rel=0.01)
+
+    def test_throttle_increases_interval(self):
+        """throttle() should multiply interval by factor"""
+        rl = AsyncRateLimiter(200)
+        original = rl.min_interval
+        rl.throttle(factor=2.0)
+        assert rl.min_interval == pytest.approx(original * 2.0, rel=0.01)
+
+    def test_throttle_respects_max(self):
+        """throttle() should cap at max_interval"""
+        rl = AsyncRateLimiter(200)
+        for _ in range(50):
+            rl.throttle(factor=2.0, max_interval=5.0)
+        assert rl.min_interval == 5.0
+
+    @pytest.mark.asyncio
+    async def test_acquire_spaces_requests(self):
+        """Consecutive acquires should be spaced by at least min_interval"""
+        rl = AsyncRateLimiter(600)  # 10 per second = 0.1s interval
+        start = time.monotonic()
+        await rl.acquire()
+        await rl.acquire()
+        await rl.acquire()
+        elapsed = time.monotonic() - start
+        # 3 acquires should take at least 2 intervals (first is instant)
+        assert elapsed >= 0.18  # 2 * 0.1s with some tolerance
+
+
+# ── skip wallet tests ─────────────────────────────────────────────────────────
+
+class TestSkipWallet:
+
+    def test_skip_recently_scanned(self, scanner):
+        """Wallet scanned 1 hour ago should be skipped (default 6h threshold)"""
+        scanner.skip_age_hours = 6
+        scanner.db = MagicMock()
+        scanner.db.profitability_metrics.find_one.return_value = {
+            "last_updated": datetime.now() - timedelta(hours=1)
+        }
+        assert scanner._should_skip_wallet("0xabc") is True
+
+    def test_dont_skip_old_scan(self, scanner):
+        """Wallet scanned 10 hours ago should NOT be skipped"""
+        scanner.skip_age_hours = 6
+        scanner.db = MagicMock()
+        scanner.db.profitability_metrics.find_one.return_value = {
+            "last_updated": datetime.now() - timedelta(hours=10)
+        }
+        assert scanner._should_skip_wallet("0xabc") is False
+
+    def test_dont_skip_never_scanned(self, scanner):
+        """Wallet never scanned should NOT be skipped"""
+        scanner.skip_age_hours = 6
+        scanner.db = MagicMock()
+        scanner.db.profitability_metrics.find_one.return_value = None
+        assert scanner._should_skip_wallet("0xabc") is False
+
+    def test_skip_disabled_when_zero(self, scanner):
+        """skip_age_hours=0 disables skipping entirely"""
+        scanner.skip_age_hours = 0
+        scanner.db = MagicMock()
+        # Should return False without even querying the DB
+        assert scanner._should_skip_wallet("0xabc") is False
+        scanner.db.profitability_metrics.find_one.assert_not_called()
+
+    def test_dont_skip_missing_last_updated(self, scanner):
+        """Entry exists but has no last_updated — should NOT be skipped"""
+        scanner.skip_age_hours = 6
+        scanner.db = MagicMock()
+        scanner.db.profitability_metrics.find_one.return_value = {}
+        assert scanner._should_skip_wallet("0xabc") is False
 

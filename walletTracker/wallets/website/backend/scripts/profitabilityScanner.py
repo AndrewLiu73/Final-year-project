@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
-import requests
+import aiohttp
 import time
 import traceback
 
@@ -16,14 +16,37 @@ load_dotenv()
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner.log")
 
 
+class AsyncRateLimiter:
+    """Leaky-bucket rate limiter for asyncio — schedules requests to stay within RPM"""
+
+    def __init__(self, rpm):
+        self.min_interval = 60.0 / rpm
+        self._lock = asyncio.Lock()
+        self._next_allowed = 0.0
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next_allowed - now)
+            self._next_allowed = max(now, self._next_allowed) + self.min_interval
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+    def throttle(self, factor=1.5, max_interval=10.0):
+        self.min_interval = min(self.min_interval * factor, max_interval)
+
+
 class ProfitabilityScanner:
 
-    def __init__(self, mongo_uri, rpm=200):
+    def __init__(self, mongo_uri, rpm=200, skip_age_hours=6, concurrency=5):
         self.client = MongoClient(mongo_uri)
         self.db = self.client['hyperliquid']
 
-        self.delay = 60.0 / rpm
+        self.rate_limiter = AsyncRateLimiter(rpm)
         self.last_id = None
+        self._session = None
+        self.skip_age_hours = skip_age_hours
+        self.concurrency = concurrency
 
         self.setup_indexes()
 
@@ -63,44 +86,71 @@ class ProfitabilityScanner:
         print(f"scanning {len(wallets)} users | last_id: {self.last_id}")
         return [w['user'] for w in wallets if 'user' in w]
 
-    def _api_post(self, payload, retries=5, timeout=10):
+    async def _get_session(self):
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(limit=20, ttl_dns_cache=300)
+            self._session = aiohttp.ClientSession(connector=connector)
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    def _should_skip_wallet(self, wallet_address):
+        if self.skip_age_hours <= 0:
+            return False
+        existing = self.db.profitability_metrics.find_one(
+            {"wallet_address": wallet_address},
+            {"last_updated": 1}
+        )
+        if existing and existing.get("last_updated"):
+            age = (datetime.now() - existing["last_updated"]).total_seconds() / 3600
+            return age < self.skip_age_hours
+        return False
+
+    async def _api_post(self, payload, retries=5, timeout=10):
+        session = await self._get_session()
         for attempt in range(retries):
             try:
-                resp = requests.post(
+                await self.rate_limiter.acquire()
+                async with session.post(
                     "https://api.hyperliquid.xyz/info",
                     json=payload,
-                    timeout=timeout
-                )
+                    timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
 
-                if resp.status_code == 200:
-                    return resp.json()
+                    if resp.status == 429:
+                        wait = 5 * (2 ** attempt)
+                        print(f"  [429] rate limited on {payload.get('type')} "
+                              f"— backing off {wait}s (attempt {attempt + 1}/{retries})")
+                        await asyncio.sleep(wait)
+                        self.rate_limiter.throttle()
+                        print(f"  [429] rate limiter interval increased to {self.rate_limiter.min_interval:.2f}s")
+                        continue
 
-                if resp.status_code == 429:
-                    wait = 5 * (2 ** attempt)
-                    print(f"  [429] rate limited on {payload.get('type')} "
-                          f"— backing off {wait}s (attempt {attempt + 1}/{retries})")
-                    time.sleep(wait)
-                    self.delay = min(self.delay * 1.5, 10.0)
-                    print(f"  [429] global delay increased to {self.delay:.2f}s")
-                    continue
+                    if resp.status == 422:
+                        return None
 
-                if resp.status_code == 422:
+                    print(f"  HTTP {resp.status} on {payload.get('type')}")
                     return None
 
-                print(f"  HTTP {resp.status_code} on {payload.get('type')}")
-                return None
-
-            except requests.exceptions.Timeout:
+            except asyncio.TimeoutError:
                 wait = 2 * (attempt + 1)
                 print(f"  timeout on {payload.get('type')} — retrying in {wait}s")
-                time.sleep(wait)
+                await asyncio.sleep(wait)
+            except aiohttp.ClientError as e:
+                wait = 2 * (attempt + 1)
+                print(f"  connection error on {payload.get('type')}: {e} — retrying in {wait}s")
+                await asyncio.sleep(wait)
 
         print(f"  [FAILED] {payload.get('type')} after {retries} attempts — skipping")
         return None
 
-    def _fetch_all_fills_from_api(self, wallet_address, max_fills=10000):
+    async def _fetch_all_fills_from_api(self, wallet_address, max_fills=10000):
         try:
-            first_page = self._api_post(
+            first_page = await self._api_post(
                 {"type": "userFills", "user": wallet_address}, timeout=12
             ) or []
 
@@ -122,9 +172,8 @@ class ProfitabilityScanner:
             fills = first_page
 
             while len(fills) >= 2000 and len(all_fills) < max_fills:
-                time.sleep(self.delay)
                 oldest_time = min(int(f['time']) for f in fills)
-                fills = self._api_post({
+                fills = await self._api_post({
                     "type": "userFills",
                     "user": wallet_address,
                     "endTime": oldest_time - 1
@@ -179,25 +228,17 @@ class ProfitabilityScanner:
         except:
             return 0
 
-    def calculate_profitability(self, wallet_address):
+    async def calculate_profitability(self, wallet_address):
         try:
-            state = self._api_post({"type": "clearinghouseState", "user": wallet_address})
-            time.sleep(self.delay)
-
-            portfolio = self._api_post({"type": "portfolio", "user": wallet_address})
-            time.sleep(self.delay)
-
-            fees_data = self._api_post({"type": "userFees", "user": wallet_address})
-            time.sleep(self.delay)
-
-            role_data = self._api_post({"type": "userRole", "user": wallet_address})
-            time.sleep(self.delay)
-
-            sub_data = self._api_post({"type": "subAccounts", "user": wallet_address})
-            time.sleep(self.delay)
-
-            vault_data = self._api_post({"type": "userVaultEquities", "user": wallet_address})
-            time.sleep(self.delay)
+            # fire all 6 independent API calls concurrently instead of sequentially
+            state, portfolio, fees_data, role_data, sub_data, vault_data = await asyncio.gather(
+                self._api_post({"type": "clearinghouseState", "user": wallet_address}),
+                self._api_post({"type": "portfolio", "user": wallet_address}),
+                self._api_post({"type": "userFees", "user": wallet_address}),
+                self._api_post({"type": "userRole", "user": wallet_address}),
+                self._api_post({"type": "subAccounts", "user": wallet_address}),
+                self._api_post({"type": "userVaultEquities", "user": wallet_address}),
+            )
 
             if not state or not portfolio:
                 print(f"  missing state or portfolio for {wallet_address}")
@@ -309,7 +350,7 @@ class ProfitabilityScanner:
             traceback.print_exc()
             return None
 
-        fills, is_bot_by_fills = self._fetch_all_fills_from_api(wallet_address)
+        fills, is_bot_by_fills = await self._fetch_all_fills_from_api(wallet_address)
 
         closing_fills = [f for f in fills if float(f.get('closedPnl', 0)) != 0]
         total_trades = len(closing_fills)
@@ -418,89 +459,107 @@ class ProfitabilityScanner:
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"[{ts}] scanning {len(wallets)} wallets")
 
-        processed = 0
-        profitable = 0
-        no_activity = 0
-        errors = 0
-        bots = 0
-        rate_limited = 0
+        stats = {
+            "processed": 0,
+            "profitable": 0,
+            "no_activity": 0,
+            "errors": 0,
+            "bots": 0,
+            "rate_limited": 0,
+            "skipped": 0,
+        }
 
-        for wallet in wallets:
-            try:
-                await asyncio.sleep(self.delay)
+        sem = asyncio.Semaphore(self.concurrency)
+        stats_lock = asyncio.Lock()
 
-                metrics = self.calculate_profitability(wallet)
+        async def process_wallet(wallet):
+            async with sem:
+                try:
+                    if self._should_skip_wallet(wallet):
+                        async with stats_lock:
+                            stats["skipped"] += 1
+                        return
 
-                if metrics == "bot":
-                    bots += 1
-                    processed += 1
+                    metrics = await self.calculate_profitability(wallet)
 
-                elif metrics:
-                    self.db.profitability_metrics.update_one(
-                        {"wallet_address": wallet},
-                        {"$set": metrics},
-                        upsert=True
-                    )
-                    if not metrics.get('has_trading_activity', False):
-                        no_activity += 1
-                    else:
-                        if metrics.get('total_pnl_usdc', 0) > 0:
-                            profitable += 1
-                    processed += 1
+                    async with stats_lock:
+                        if metrics == "bot":
+                            stats["bots"] += 1
+                            stats["processed"] += 1
 
-                    if processed % 10 == 0:
-                        print(
-                            f"  {processed}/{len(wallets)} done | profitable: {profitable} | bots: {bots} | no activity: {no_activity}")
+                        elif metrics:
+                            self.db.profitability_metrics.update_one(
+                                {"wallet_address": wallet},
+                                {"$set": metrics},
+                                upsert=True
+                            )
+                            if not metrics.get('has_trading_activity', False):
+                                stats["no_activity"] += 1
+                            else:
+                                if metrics.get('total_pnl_usdc', 0) > 0:
+                                    stats["profitable"] += 1
+                            stats["processed"] += 1
 
-                else:
-                    errors += 1
-            except Exception as e:
-                err_msg = str(e).lower()
+                            if stats["processed"] % 10 == 0:
+                                print(
+                                    f"  {stats['processed']}/{len(wallets)} done | profitable: {stats['profitable']} | bots: {stats['bots']} | no activity: {stats['no_activity']}")
 
-                if "429" in err_msg or "rate" in err_msg:
-                    rate_limited += 1
-                    print(f"  [RATE LIMIT] {wallet} — sleeping 30s before continuing")
-                    await asyncio.sleep(30)
-                else:
-                    print(f"  failed on {wallet}: {e}")
-                    errors += 1
+                        else:
+                            stats["errors"] += 1
+                except Exception as e:
+                    err_msg = str(e).lower()
 
-                continue
+                    async with stats_lock:
+                        if "429" in err_msg or "rate" in err_msg:
+                            stats["rate_limited"] += 1
+                            print(f"  [RATE LIMIT] {wallet} — sleeping 30s before continuing")
+                            await asyncio.sleep(30)
+                        else:
+                            print(f"  failed on {wallet}: {e}")
+                            stats["errors"] += 1
+
+        await asyncio.gather(*[process_wallet(w) for w in wallets], return_exceptions=True)
 
         print(f"batch done:")
-        print(f"  processed:    {processed}")
-        print(f"  profitable:   {profitable}")
-        print(f"  bots:         {bots}")
-        print(f"  no activity:  {no_activity}")
-        print(f"  rate limited: {rate_limited}")
-        print(f"  errors:       {errors}\n")
+        print(f"  processed:    {stats['processed']}")
+        print(f"  profitable:   {stats['profitable']}")
+        print(f"  bots:         {stats['bots']}")
+        print(f"  no activity:  {stats['no_activity']}")
+        print(f"  skipped:      {stats['skipped']}")
+        print(f"  rate limited: {stats['rate_limited']}")
+        print(f"  errors:       {stats['errors']}\n")
 
         with open(LOG_PATH, "a") as f:
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            f.write(f"[{ts}] processed: {processed} | bots: {bots} | rate_limited: {rate_limited} | errors: {errors}\n")
-        return processed
+            f.write(f"[{ts}] processed: {stats['processed']} | bots: {stats['bots']} | skipped: {stats['skipped']} | rate_limited: {stats['rate_limited']} | errors: {stats['errors']}\n")
+        return stats['processed']
 
     async def run_continuous(self):
         print("profitability scanner starting up")
-        print(f"rate: {60.0 / self.delay:.0f} requests per minute\n")
+        print(f"rate: {1 / self.rate_limiter.min_interval * 60:.0f} requests per minute")
+        print(f"concurrency: {self.concurrency} wallets in parallel")
+        print(f"skip age: {self.skip_age_hours}h\n")
 
         cycle = 0
 
-        while True:
-            try:
-                cycle += 1
-                print(f"\n--- cycle {cycle} ---")
-                processed = await self.scan_batch(batch_size=100)
+        try:
+            while True:
+                try:
+                    cycle += 1
+                    print(f"\n--- cycle {cycle} ---")
+                    processed = await self.scan_batch(batch_size=100)
 
-                await asyncio.sleep(30)
+                    await asyncio.sleep(30)
 
-            except KeyboardInterrupt:
-                print("\nstopped")
-                break
-            except Exception as e:
-                print(f"something broke in cycle {cycle}: {e}")
-                print("waiting 5 mins before retrying")
-                await asyncio.sleep(300)
+                except KeyboardInterrupt:
+                    print("\nstopped")
+                    break
+                except Exception as e:
+                    print(f"something broke in cycle {cycle}: {e}")
+                    print("waiting 5 mins before retrying")
+                    await asyncio.sleep(300)
+        finally:
+            await self.close()
 
 
 async def main():
