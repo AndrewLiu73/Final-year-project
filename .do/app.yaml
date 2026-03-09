@@ -27,11 +27,11 @@ services:
       - key: MONGO_URI
         scope: RUN_TIME
         type: SECRET
-        value: "your-mongo-uri-here"
+        value: "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
         type: SECRET
-        value: "your-bot-token-here"
+        value: "8799008941:AAF-OfzU3tAfrJHfb2cGNt06m9RfBrKoSSs"
       - key: ALLOWED_ORIGINS
         scope: RUN_TIME
         value: "${APP_URL}"
@@ -71,5 +71,6 @@ workers:
       - key: MONGO_URI
         scope: RUN_TIME
         type: SECRET
-        value: "your-mongo-uri-here"
+        value: "mongodb+srv://andrewliu:xGMymy8wQ2vaL2No@cluster0.famk0m5.mongodb.net/hyperliquid?retryWrites=true&w=majority&authSource=admin"
+
 
