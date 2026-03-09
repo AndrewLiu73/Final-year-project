@@ -60,6 +60,13 @@ class ProfitabilityScanner:
         # without this it went 0.3 → 0.45 → 0.67 → 1.01 → 1.52 in one burst
         self._last_ratchet = 0
 
+        # once phase 1 finishes (all wallets scanned at least once), we don't
+        # need to run the expensive $lookup every single cycle. this counter
+        # tracks how many cycles since we last checked for new unscanned wallets.
+        # re-checks every 10 cycles (~2 hours) in case new wallets were added
+        self._phase1_done = False
+        self._cycles_since_phase1_check = 0
+
         self.setup_indexes()
 
     async def _get_http(self):
@@ -105,36 +112,45 @@ class ProfitabilityScanner:
         """
 
         # -- phase 1: find wallets with no profitability_metrics doc --
-        # $lookup joins users → profitability_metrics on the wallet address.
-        # if the join produces an empty array, that wallet has never been scanned.
-        # this runs entirely inside mongo so it works regardless of where the
-        # unscanned wallets are in the collection — no client-side filtering needed
-        pipeline = [
-            {"$match": {"user": {"$exists": True}}},
-            {"$lookup": {
-                "from": "profitability_metrics",
-                "localField": "user",
-                "foreignField": "wallet_address",
-                "as": "metrics"
-            }},
-            # only keep users where the join found nothing
-            {"$match": {"metrics": {"$size": 0}}},
-            {"$project": {"user": 1, "_id": 0}},
-            {"$limit": batch_size}
-        ]
+        # the $lookup joins 55k users against 55k metrics docs which is expensive.
+        # once all wallets have been scanned, skip this and go straight to phase 2.
+        # re-check every 10 cycles (~2 hours) in case new wallets were added
+        self._cycles_since_phase1_check += 1
+        skip_phase1 = self._phase1_done and self._cycles_since_phase1_check < 10
 
-        never_scanned = [doc['user'] for doc in self.db.users.aggregate(pipeline)]
+        if not skip_phase1:
+            self._cycles_since_phase1_check = 0
 
-        if never_scanned:
-            # quick count of how many more are waiting so we can track progress
-            count_pipeline = pipeline[:-1] + [{"$count": "total"}]
-            count_result = list(self.db.users.aggregate(count_pipeline))
-            total_unscanned = count_result[0]['total'] if count_result else len(never_scanned)
-            remaining = total_unscanned - len(never_scanned)
+            pipeline = [
+                {"$match": {"user": {"$exists": True}}},
+                {"$lookup": {
+                    "from": "profitability_metrics",
+                    "localField": "user",
+                    "foreignField": "wallet_address",
+                    "as": "metrics"
+                }},
+                {"$match": {"metrics": {"$size": 0}}},
+                {"$project": {"user": 1, "_id": 0}},
+                {"$limit": batch_size}
+            ]
 
-            logger.info(f"[PHASE 1] {len(never_scanned)} never-scanned wallets "
-                        f"({remaining} more waiting)")
-            return never_scanned
+            never_scanned = [doc['user'] for doc in self.db.users.aggregate(pipeline)]
+
+            if never_scanned:
+                self._phase1_done = False
+                count_pipeline = pipeline[:-1] + [{"$count": "total"}]
+                count_result = list(self.db.users.aggregate(count_pipeline))
+                total_unscanned = count_result[0]['total'] if count_result else len(never_scanned)
+                remaining = total_unscanned - len(never_scanned)
+
+                logger.info(f"[PHASE 1] {len(never_scanned)} never-scanned wallets "
+                            f"({remaining} more waiting)")
+                return never_scanned
+            else:
+                # all wallets have been scanned at least once
+                if not self._phase1_done:
+                    logger.info("[PHASE 1] complete — all wallets scanned, switching to phase 2")
+                self._phase1_done = True
 
         # -- phase 2: rescan the stalest wallets --
         # all wallets have been scanned at least once, so grab the ones
