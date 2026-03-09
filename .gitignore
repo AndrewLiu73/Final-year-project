@@ -1,0 +1,27 @@
+﻿# dependencies
+node_modules/
+# python bytecode
+__pycache__/
+*.pyc
+*.pyo
+# env files
+.env
+.env.*
+# ide
+.idea/
+.vscode/
+*.swp
+# venv
+.venv/
+# build output
+build/
+dist/
+# OS junk
+.DS_Store
+Thumbs.db
+# logs
+*.log
+# mongo backups - these are huge and already live in the db
+**/mongo_backup/
+# CS433 was a separate module, not part of this project
+CS433/
