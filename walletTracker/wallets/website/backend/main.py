@@ -80,17 +80,17 @@ app = FastAPI(lifespan=lifespan)
 
 from fastapi.middleware.cors import CORSMiddleware
 
-# read allowed origins from env so we don't have to hardcode the DO domain.
-# falls back to localhost for local dev. on digitalocean ALLOWED_ORIGINS gets
-# set to the app URL automatically via ${APP_URL} in .do/app.yaml
-_default_origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://localhost:3000"]
-_env_origins = os.getenv("ALLOWED_ORIGINS", "")
-if _env_origins:
-    _default_origins += [o.strip() for o in _env_origins.split(",") if o.strip()]
+# localhost entries are for local dev, the env var is for production.
+# on digital ocean set ALLOWED_ORIGINS to your appwrite frontend URL
+# e.g. "https://your-project.appwrite.io" or whatever domain appwrite gives you
+_origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://localhost:3000"]
+_extra = os.getenv("ALLOWED_ORIGINS", "")
+if _extra:
+    _origins += [o.strip() for o in _extra.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_default_origins,
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
