@@ -1,0 +1,75 @@
+# DigitalOcean App Platform spec
+# docs: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+#
+# Three components:
+#   1. backend  — FastAPI web service (port 8000)
+#   2. frontend — React static site (built at deploy time, served by DO CDN)
+#   3. scanner  — profitabilityScanner.py worker (runs continuously, no HTTP)
+#
+# To deploy: push to GitHub, then either connect via the DO dashboard
+# or run: doctl apps create --spec .do/app.yaml
+
+name: trading-tool
+
+services:
+  # ---------- FastAPI backend ----------
+  - name: backend
+    github:
+      repo: AndrewLiu73/tradingTool
+      branch: main
+      deploy_on_push: true
+    source_dir: walletTracker/wallets/website/backend
+    dockerfile_path: Dockerfile
+    http_port: 8000
+    instance_count: 1
+    instance_size_slug: basic-xxs   # $5/mo — 512MB RAM, shared CPU
+    envs:
+      - key: MONGO_URI
+        scope: RUN_TIME
+        type: SECRET
+        value: "your-mongo-uri-here"
+      - key: TELEGRAM_BOT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: "your-bot-token-here"
+      - key: ALLOWED_ORIGINS
+        scope: RUN_TIME
+        value: "${APP_URL}"
+    routes:
+      - path: /api
+    health_check:
+      http_path: /
+
+# ---------- React frontend ----------
+static_sites:
+  - name: frontend
+    github:
+      repo: AndrewLiu73/tradingTool
+      branch: main
+      deploy_on_push: true
+    source_dir: walletTracker/wallets/website/frontend
+    build_command: npm install && npm run build
+    output_dir: build
+    catchall_document: index.html   # react-router needs this for client-side routing
+    envs:
+      - key: REACT_APP_API_URL
+        scope: BUILD_TIME
+        value: "${APP_URL}"
+
+# ---------- scanner worker ----------
+workers:
+  - name: scanner
+    github:
+      repo: AndrewLiu73/tradingTool
+      branch: main
+      deploy_on_push: true
+    source_dir: walletTracker/wallets/website/backend
+    dockerfile_path: Dockerfile.worker
+    instance_count: 1
+    instance_size_slug: basic-xxs   # $5/mo — scanner is mostly idle waiting on API
+    envs:
+      - key: MONGO_URI
+        scope: RUN_TIME
+        type: SECRET
+        value: "your-mongo-uri-here"
+

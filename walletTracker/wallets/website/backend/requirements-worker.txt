@@ -1,0 +1,6 @@
+# the scanner only needs a fraction of what the full backend uses.
+# no point pulling in fastapi/uvicorn/pandas/matplotlib for a background worker
+pymongo
+httpx
+python-dotenv
+

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env
+tests/
+*.log
+mongo_backup/
+.git/
+.gitignore
+
