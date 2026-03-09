@@ -7,10 +7,10 @@ import BiasHistoryChart from './components/biasHistoryChart';
 import PositionBar from './components/positionBar';
 import ProfitableTradersPage from './pages/profitability';
 import TraderDetailPage from './pages/TraderDetail';
+import OpenPositionsPage from './pages/openPositions';
 import OITabs from './components/OITabs';
 import WatchlistPage from './pages/watchlist';
 import ErrorBoundary from './components/ErrorBoundary';
-// import TelegramLogin from './components/telegramLogin';
 
 // --- Navigation Header ---
 function NavigationHeader() {
@@ -19,16 +19,7 @@ function NavigationHeader() {
 
   const isMarket  = location.pathname === '/';
   const isTraders = location.pathname.startsWith('/traders') || location.pathname.startsWith('/trader/');
-  // const [user, setUser] = useState(() => {
-//   const id   = localStorage.getItem("user_id");
-//   const name = localStorage.getItem("user_name");
-//   return id ? { user_id: id, name } : null;
-// });
- // const handleLogout = () => {
- //    localStorage.removeItem("user_id");
- //    localStorage.removeItem("user_name");
- //    setUser(null);
- //  };
+
   return (
     <div className="header-container">
       <h1 className="main-title">Hyperliquid Analytics</h1>
@@ -46,30 +37,20 @@ function NavigationHeader() {
         >
           Traders
         </button>
+
+        <button
+          onClick={() => navigate('/open-positions')}
+          className={`nav-button ${location.pathname === '/open-positions' ? 'active' : ''}`}
+        >
+          Open Positions
+        </button>
+
         <button
           onClick={() => navigate('/watchlist')}
           className={`nav-button ${location.pathname === '/watchlist' ? 'active' : ''}`}
         >
           Watchlist
         </button>
-        {/*<div style={{ marginLeft: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>*/}
-        {/*  {user ? (*/}
-        {/*    <>*/}
-        {/*      <span style={{ color: '#b9bbbe', fontSize: '13px' }}>*/}
-        {/*        Hi, {user.name}*/}
-        {/*      </span>*/}
-        {/*      <button*/}
-        {/*        onClick={handleLogout}*/}
-        {/*        className="nav-button"*/}
-        {/*        style={{ background: '#ed4245', color: 'white', fontSize: '12px' }}*/}
-        {/*      >*/}
-        {/*        Logout*/}
-        {/*      </button>*/}
-        {/*    </>*/}
-        {/*  ) : (*/}
-        {/*    <TelegramLogin onAuth={setUser} />*/}
-        {/*  )}*/}
-        {/*</div>*/}
       </div>
     </div>
   );
@@ -303,6 +284,7 @@ function AppContent() {
             <Route path="/"               element={<MarketView />} />
             <Route path="/traders"        element={<ProfitableTradersPage />} />
             <Route path="/trader/:wallet" element={<TraderDetailPage />} />
+            <Route path="/open-positions" element={<OpenPositionsPage />} />
             <Route path="/watchlist" element={<WatchlistPage />} />
           </Routes>
         </ErrorBoundary>

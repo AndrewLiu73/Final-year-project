@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
-# from biasAlert import compute_watchlist_bias
 
 scheduler = AsyncIOScheduler()
 
@@ -25,6 +24,8 @@ BALANCES_COLLECTION = "balances"
 PROFITABILITY_METRICS_COLLECTION = "profitability_metrics"
 EXCHANGES_OI_COLLECTION = "exchange_oi"
 WATCHLISTS_COLLECTION = "watchlists"
+LARGE_POSITIONS_COLLECTION = "open_positions"
+ASSET_CONCENTRATION_COLLECTION = "asset_concentration"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # pulled this out so its not scattered across every endpoint
@@ -79,18 +80,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 from fastapi.middleware.cors import CORSMiddleware
-
-# localhost entries are for local dev, the env var is for production.
-# on digital ocean set ALLOWED_ORIGINS to your appwrite frontend URL
-# e.g. "https://your-project.appwrite.io" or whatever domain appwrite gives you
-_origins = ["http://127.0.0.1:8000", "http://localhost:8000", "http://localhost:3000"]
-_extra = os.getenv("ALLOWED_ORIGINS", "")
-if _extra:
-    _origins += [o.strip() for o in _extra.split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
+    allow_origins=["http://127.0.0.1:8000", "http://localhost:8000", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -458,6 +450,90 @@ async def get_exchange_oi():
 
     cache_set("exchange_oi", grouped)
     return grouped
+
+
+@app.get("/api/large-positions")
+async def get_large_positions(
+    min_notional_usd: Optional[float] = Query(10000, ge=0),
+    asset: Optional[str] = Query(None),
+    direction: Optional[str] = Query(None),
+    sort_by: str = Query("notional_usd"),
+    sort_direction: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+):
+    """
+    Reads from the open_positions collection which OpenTrades.py keeps fresh.
+    """
+    cache_key = f"large_pos:{min_notional_usd}:{asset}:{direction}:{sort_by}:{sort_direction}:{page}:{page_size}"
+    cached = cache_get(cache_key, ttl=30)
+    if cached is not None:
+        return cached
+
+    coll = app.mongodb[LARGE_POSITIONS_COLLECTION]
+
+    query = {}
+    if min_notional_usd:
+        query["notional_usd"] = {"$gte": min_notional_usd}
+    if asset:
+        query["asset"] = asset.upper()
+    if direction:
+        query["direction"] = direction.upper()
+
+    sort_field_map = {
+        "notional_usd": "notional_usd",
+        "unrealized_pnl": "unrealized_pnl",
+        "account_value": "account_value",
+        "size": "size",
+    }
+    field = sort_field_map.get(sort_by, "notional_usd")
+    mongo_dir = -1 if sort_direction == "desc" else 1
+
+    total_count = await coll.count_documents(query)
+    unique_wallets = len(await coll.distinct("wallet_address", query))
+    skip = (page - 1) * page_size
+
+    cursor = coll.find(query, {"_id": 0}).sort(field, mongo_dir).skip(skip).limit(page_size)
+    results = await cursor.to_list(length=page_size)
+
+    for r in results:
+        if r.get("last_updated") and hasattr(r["last_updated"], "isoformat"):
+            r["last_updated"] = r["last_updated"].isoformat()
+
+    response = {
+        "data": results,
+        "pagination": {
+            "total_count": total_count,
+            "unique_wallets": unique_wallets,
+            "page": page,
+            "page_size": page_size,
+            "has_more": (skip + len(results)) < total_count,
+        }
+    }
+
+    cache_set(cache_key, response)
+    return response
+
+
+@app.get("/api/asset-concentration")
+async def get_asset_concentration():
+    """
+    Read asset concentration from the pre-computed asset_concentration collection.
+    """
+    cached = cache_get("asset_concentration", ttl=30)
+    if cached is not None:
+        return cached
+
+    coll = app.mongodb[ASSET_CONCENTRATION_COLLECTION]
+    cursor = coll.find({}, {"_id": 0}).sort("total_notional", -1)
+    results = await cursor.to_list(length=200)
+
+    for r in results:
+        if r.get("last_updated") and hasattr(r["last_updated"], "isoformat"):
+            r["last_updated"] = r["last_updated"].isoformat()
+
+    cache_set("asset_concentration", results)
+    return results
 
 
 class WatchlistItem(BaseModel):

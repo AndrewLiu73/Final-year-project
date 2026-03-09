@@ -60,7 +60,7 @@ class ProfitabilityScanner:
         # without this it went 0.3 → 0.45 → 0.67 → 1.01 → 1.52 in one burst
         self._last_ratchet = 0
 
-        # once phase 1 finishes (all wallets scanned at least once), we don't
+        # once phase 1 finishes (all wallets scanned at least once), don't
         # need to run the expensive $lookup every single cycle. this counter
         # tracks how many cycles since we last checked for new unscanned wallets.
         # re-checks every 10 cycles (~2 hours) in case new wallets were added
@@ -93,6 +93,7 @@ class ProfitabilityScanner:
         self.db.profitability_metrics.create_index("is_likely_bot")
         self.db.profitability_metrics.create_index("user_role")
         self.db.profitability_metrics.create_index("fee_tier")
+        self.db.profitability_metrics.create_index("open_positions_count")
         self.db.users.create_index("user", unique=True)
 
         logger.info("indexes done\n")
