@@ -1,10 +1,12 @@
-import { useState, useMemo,useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useProfitableTraders } from '../hooks/useProfitability';
 import { useNavigate } from 'react-router-dom';
 import styles from './profitability.module.css';
 import useUserId from "../hooks/useUsers";
-import { formatBalance } from '../utils/formatters';
 import API_BASE from '../config';
+// pulled sort logic into a shared hook — was getting annoying maintaining it in 3 places
+import useSort from '../hooks/useSort';
+import TraderTable from '../components/TraderTable';
 
 export default function ProfitableTradersPage() {
   const navigate = useNavigate();
@@ -16,6 +18,7 @@ export default function ProfitableTradersPage() {
   const [maxBalanceInput, setMaxBalanceInput]   = useState('');
   const [pageSizeInput, setPageSizeInput]       = useState('100');
   const [botFilterInput, setBotFilterInput]     = useState('default');
+  const [activityFilterInput, setActivityFilterInput] = useState('active');
 
   const [appliedFilters, setAppliedFilters] = useState({
     minWinrate:  undefined,
@@ -23,6 +26,7 @@ export default function ProfitableTradersPage() {
     minBalance:  undefined,
     maxBalance:  undefined,
     botFilter:   'default',
+    activeOnly:  true,
   });
   // restore filters on mount — add this useEffect near the top
 
@@ -37,6 +41,7 @@ useEffect(() => {
     setMaxBalanceInput(f.maxBalanceInput   ?? '');
     setPageSizeInput(f.pageSizeInput       ?? '100');
     setBotFilterInput(f.botFilterInput     ?? 'default');
+    setActivityFilterInput(f.activityFilterInput ?? 'active');
     setSortBy(f.sortBy                     ?? 'pnl');
     setSortDirection(f.sortDirection       ?? 'desc');
     setSearchQuery(f.searchQuery           ?? '');
@@ -48,6 +53,7 @@ useEffect(() => {
         minBalance:  f.minBalanceInput  ? parseFloat(f.minBalanceInput)  : undefined,
         maxBalance:  f.maxBalanceInput  ? parseFloat(f.maxBalanceInput)  : undefined,
         botFilter:   f.botFilterInput   ?? 'default',
+        activeOnly:  (f.activityFilterInput ?? 'active') === 'active',
     });
     setPageSize(parseInt(f.pageSizeInput) || 100);
 }, []); // empty deps = runs once on mount
@@ -55,8 +61,8 @@ useEffect(() => {
 
   const [pageSize, setPageSize]           = useState(100);
   const [searchQuery, setSearchQuery]     = useState('');
-  const [sortBy, setSortBy]               = useState('pnl');
-  const [sortDirection, setSortDirection] = useState('desc');
+  // useSort hook replaces the old manual handleSort + state that was duplicated everywhere
+  const { sortBy, setSortBy, sortDirection, setSortDirection, handleSort } = useSort('pnl', 'desc');
 
   const {
     traders,
@@ -87,6 +93,7 @@ useEffect(() => {
       minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
       maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
       botFilter:   botFilterInput,
+      activeOnly:  activityFilterInput === 'active',
     });
     const newPageSize = parseInt(pageSizeInput) || 100;
     setPageSize(Math.min(Math.max(newPageSize, 10), 200));
@@ -99,12 +106,14 @@ useEffect(() => {
     setMaxBalanceInput('');
     setPageSizeInput('100');
     setBotFilterInput('default');
+    setActivityFilterInput('active');
     setAppliedFilters({
       minWinrate:  undefined,
       maxDrawdown: undefined,
       minBalance:  undefined,
       maxBalance:  undefined,
       botFilter:   'default',
+      activeOnly:  true,
     });
     setPageSize(100);
   };
@@ -116,21 +125,15 @@ useEffect(() => {
       minBalance:  minBalanceInput  ? parseFloat(minBalanceInput)  : undefined,
       maxBalance:  maxBalanceInput  ? parseFloat(maxBalanceInput)  : undefined,
       botFilter:   botFilterInput,
+      activeOnly:  activityFilterInput === 'active',
     };
     const inputPageSize   = parseInt(pageSizeInput) || 100;
     const pageSizeChanged = inputPageSize !== pageSize;
     return JSON.stringify(currentInputs) !== JSON.stringify(appliedFilters) || pageSizeChanged;
-  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, pageSizeInput, botFilterInput, appliedFilters, pageSize]);
+  }, [minWinrateInput, maxDrawdownInput, minBalanceInput, maxBalanceInput, pageSizeInput, botFilterInput, activityFilterInput, appliedFilters, pageSize]);
 
-  const handleSort = (column) => {
-    if (sortBy === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortDirection('desc');
-    }
-  };
-
+  // handleSort comes from useSort hook now
+  // SortIndicator comes from TraderTable component
 
 const handleWalletClick = (wallet) => {
     sessionStorage.setItem('traderFilters', JSON.stringify({
@@ -140,6 +143,7 @@ const handleWalletClick = (wallet) => {
         maxBalanceInput,
         pageSizeInput,
         botFilterInput,
+        activityFilterInput,
         sortBy,
         sortDirection,
         searchQuery,
@@ -173,14 +177,6 @@ const handleWalletClick = (wallet) => {
     };
   }, [filteredTraders, traders.length, pagination]);
 
-  const SortIndicator = ({ column }) => {
-    if (sortBy !== column) return null;
-    return (
-      <span className={styles.sortIndicator}>
-        {sortDirection === 'asc' ? '↑' : '↓'}
-      </span>
-    );
-  };
 
   if (initialLoading) {
     return (
@@ -281,6 +277,19 @@ const handleWalletClick = (wallet) => {
           </label>
 
           <label className={styles.filterLabel}>
+            <span className={styles.labelText}>Activity Filter</span>
+            <select
+              value={activityFilterInput}
+              onChange={(e) => setActivityFilterInput(e.target.value)}
+              className={styles.discordSelect}
+            >
+              <option value="active">Active only</option>
+              <option value="all">All traders</option>
+            </select>
+            <span className={styles.helperText}>Show traders with open positions</span>
+          </label>
+
+          <label className={styles.filterLabel}>
             <span className={styles.labelText}>Traders Per Page</span>
             <select
               value={pageSizeInput}
@@ -351,120 +360,42 @@ const handleWalletClick = (wallet) => {
           </div>
         </div>
 
-        <div className={styles.tableContainer}>
-          <div className={styles.tableHeader}>
-            <div className={styles.colWallet}>Wallet</div>
-            <div className={`${styles.colBalance} ${styles.sortable}`} onClick={() => handleSort('balance')}>
-              Balance <SortIndicator column="balance" />
-            </div>
-            <div className={`${styles.colPnl} ${styles.sortable}`} onClick={() => handleSort('pnl')}>
-              All-Time PnL <SortIndicator column="pnl" />
-            </div>
-            <div className={`${styles.colOpenTrades} ${styles.sortable}`} onClick={() => handleSort('openTrades')}>
-              Open Trades <SortIndicator column="openTrades" />
-            </div>
-            <div className={`${styles.colWinrate} ${styles.sortable}`} onClick={() => handleSort('winrate')}>
-              Winrate <SortIndicator column="winrate" />
-            </div>
-            <div className={`${styles.colDrawdown} ${styles.sortable}`} onClick={() => handleSort('drawdown')}>
-              Max DD <SortIndicator column="drawdown" />
-            </div>
-            <div className={styles.colWatch}>Watch</div>
-          </div>
-
-          <div className={styles.tableBody}>
-            {filteredTraders.length > 0 ? (
-              <>
-                {filteredTraders.map((trader, index) => {
-                  const profitColor = trader.isProfitable ? '#3ba55d' : '#ed4245';
-                  return (
-                    <div key={`${trader.wallet}-${index}`} className={styles.tableRow}>
-                      <div className={styles.colWallet}>
-                        <div className={styles.walletCell}>
-                          <div className={styles.statusDot} style={{ background: profitColor }} />
-                          <span
-                            className={styles.walletText}
-                            title={trader.wallet}
-                            onClick={() => handleWalletClick(trader.wallet)}
-                          >
-                            {trader.wallet.slice(0, 6)}...{trader.wallet.slice(-4)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className={styles.colBalance}>
-                        <span className={styles.valueText}>{formatBalance(trader.currentBalance)}</span>
-                      </div>
-
-                     <div className={styles.colPnl}>
-                          <div className={styles.pnlCell}>
-                              <span className={styles.pnlValue} style={{ color: profitColor }}>
-                                  {trader.gainDollar > 0 ? '+' : ''}{formatBalance(trader.gainDollar)}
-                              </span>
-                              <span className={styles.pnlPercent} style={{ color: profitColor }}>
-                                  ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent.toFixed(1)}%)
-                              </span>
-                          </div>
-                      </div>
-
-
-                      <div className={styles.colOpenTrades}>
-                        <span className={styles.valueText}>{trader.openPositionsCount || 0}</span>
-                      </div>
-
-                      <div className={styles.colWinrate}>
-                        <span className={styles.valueText}>
-                          {trader.winrate ? `${trader.winrate.toFixed(1)}%` : '-'}
-                        </span>
-                      </div>
-
-                      <div className={styles.colDrawdown}>
-                        <span className={styles.valueText}>
-                          {trader.maxDrawdown ? `${trader.maxDrawdown.toFixed(1)}%` : '-'}
-                        </span>
-                      </div>
-
-                       <div className={styles.colWatch}>
-                        <span
-                          className={styles.watchStar}
-                          onClick={() => addToWatchlist(trader.wallet)}
-                          title="Add to watchlist"
-                        >
-                          ★
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {hasMore && (
-                  <div className={styles.loadMoreRow}>
-                    <button onClick={loadMore} disabled={loading} className={styles.loadMoreBtn}>
-                      {loading ? (
-                        <>
-                          <div className={styles.smallSpinner}></div>
-                          Loading...
-                        </>
-                      ) : (
-                        `Load More (${(pagination.total_count - stats.loaded).toLocaleString()} remaining)`
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                {!hasMore && stats.loaded > 0 && (
-                  <div className={styles.endMessage}>
-                    End of results • {stats.total.toLocaleString()} traders
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className={styles.emptyState}>
-                <p>No traders match your filters</p>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Using TraderTable component instead of duplicating table markup here and in watchlist */}
+        <TraderTable
+          traders={filteredTraders}
+          sortBy={sortBy}
+          sortDirection={sortDirection}
+          handleSort={handleSort}
+          onWalletClick={handleWalletClick}
+          actionLabel="Watch"
+          onAction={addToWatchlist}
+          actionIcon="★"
+          actionColor="#5865f2"
+          styles={styles}
+          footer={
+            <>
+              {hasMore && (
+                <div className={styles.loadMoreRow}>
+                  <button onClick={loadMore} disabled={loading} className={styles.loadMoreBtn}>
+                    {loading ? (
+                      <>
+                        <div className={styles.smallSpinner}></div>
+                        Loading...
+                      </>
+                    ) : (
+                      `Load More (${(pagination.total_count - stats.loaded).toLocaleString()} remaining)`
+                    )}
+                  </button>
+                </div>
+              )}
+              {!hasMore && stats.loaded > 0 && (
+                <div className={styles.endMessage}>
+                  End of results • {stats.total.toLocaleString()} traders
+                </div>
+              )}
+            </>
+          }
+        />
       </div>
     </div>
   );

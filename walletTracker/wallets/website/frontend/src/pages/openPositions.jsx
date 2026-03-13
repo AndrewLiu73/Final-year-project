@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { formatBalance } from '../utils/formatters';
 import styles from './openPositions.module.css';
 import API_BASE from '../config';
+// shared hook + component so sorting isn't hand-rolled on every page
+import useSort from '../hooks/useSort';
+import SortIndicator from '../components/SortIndicator';
 
 const REFRESH_INTERVAL = 30_000; // 30s — backend cache is 30s anyway
 
@@ -20,8 +23,8 @@ export default function OpenPositionsPage() {
   const [minNotional, setMinNotional] = useState('10000');
   const [assetFilter, setAssetFilter] = useState('');
   const [directionFilter, setDirectionFilter] = useState('');
-  const [sortBy, setSortBy] = useState('notional_usd');
-  const [sortDirection, setSortDirection] = useState('desc');
+  // useSort instead of manual state — same hook the other pages use
+  const { sortBy, sortDirection, handleSort } = useSort('notional_usd', 'desc');
 
   const abortRef = useRef(null);
 
@@ -78,20 +81,6 @@ export default function OpenPositionsPage() {
     return () => clearInterval(id);
   }, [fetchPositions, fetchConcentration]);
 
-  // ── sorting ──
-  const handleSort = (col) => {
-    if (sortBy === col) {
-      setSortDirection(d => d === 'desc' ? 'asc' : 'desc');
-    } else {
-      setSortBy(col);
-      setSortDirection('desc');
-    }
-  };
-
-  const SortIndicator = ({ column }) => {
-    if (sortBy !== column) return null;
-    return <span className={styles.sortIndicator}>{sortDirection === 'desc' ? '▼' : '▲'}</span>;
-  };
 
   // ── summary stats ──
   const stats = useMemo(() => {
@@ -251,18 +240,18 @@ export default function OpenPositionsPage() {
             <div>Asset</div>
             <div>Side</div>
             <div className={styles.sortable} onClick={() => handleSort('size')}>
-              Size <SortIndicator column="size" />
+              Size <SortIndicator sortBy={sortBy} column="size" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
             </div>
             <div>Entry</div>
             <div className={styles.sortable} onClick={() => handleSort('notional_usd')}>
-              Notional <SortIndicator column="notional_usd" />
+              Notional <SortIndicator sortBy={sortBy} column="notional_usd" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
             </div>
             <div className={styles.sortable} onClick={() => handleSort('unrealized_pnl')}>
-              uPnL <SortIndicator column="unrealized_pnl" />
+              uPnL <SortIndicator sortBy={sortBy} column="unrealized_pnl" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
             </div>
             <div>Wallet</div>
             <div className={styles.sortable} onClick={() => handleSort('account_value')}>
-              Acct Value <SortIndicator column="account_value" />
+              Acct Value <SortIndicator sortBy={sortBy} column="account_value" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
             </div>
           </div>
 

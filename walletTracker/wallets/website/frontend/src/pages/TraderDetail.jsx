@@ -1,17 +1,74 @@
 'use client';
 
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './TraderDetail.module.css';
-import { useTraderData } from '../hooks/useWalletData';
 import { calculateDirectionalBias } from '../utils/biasUtils';
 import { formatBalance } from '../utils/formatters';
 import HistoryChart from '../components/balanceChart';
+import API_BASE from '../config';
 
 
 export default function TraderDetailPage() {
     const { wallet } = useParams();
     const navigate = useNavigate();
-    const { data: trader, loading, error, dataSource } = useTraderData(wallet);
+
+    const [trader, setTrader] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [dataSource, setDataSource] = useState('cached');
+
+    const fetchData = useCallback(async (signal) => {
+        if (!wallet) return;
+        setLoading(true);
+        setError(null);
+
+        try {
+            // fire both requests at once so we're not waiting sequentially
+            const [liveRes, dbRes] = await Promise.all([
+                fetch(`${API_BASE}/api/users/trader/${wallet}/live`, { signal }),
+                fetch(`${API_BASE}/api/users/trader/${wallet}`, { signal })
+            ]);
+
+            const liveData = liveRes.ok ? await liveRes.json() : null;
+            const dbData = dbRes.ok ? await dbRes.json() : null;
+
+            if (!dbData || dbData.error) {
+                setError('Trader not found');
+                return;
+            }
+
+            // merge live data on top of cached data. if the live call failed
+            // we just show the cached version with a "cached" badge
+            const merged = {
+                ...dbData,
+                ...(liveData && !liveData.error ? {
+                    account_value: liveData.account_value,
+                    withdrawable_balance: liveData.withdrawable_balance,
+                    total_pnl: liveData.total_pnl,
+                    realized_pnl: liveData.realized_pnl,
+                    unrealized_pnl: liveData.unrealized_pnl,
+                    profit_percentage: liveData.profit_percentage,
+                    open_positions: liveData.open_positions,
+                    open_positions_count: liveData.open_positions_count,
+                    data_source: 'live',
+                } : { data_source: 'cached' })
+            };
+
+            setTrader(merged);
+            setDataSource(merged.data_source);
+        } catch (err) {
+            if (err.name !== 'AbortError') setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [wallet]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchData(controller.signal);
+        return () => controller.abort();
+    }, [fetchData]);
 
     const copyToClipboard = () => {
         if (wallet) {

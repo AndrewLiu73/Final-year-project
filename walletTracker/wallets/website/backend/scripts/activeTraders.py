@@ -16,9 +16,6 @@ load_dotenv(ENV_PATH)
 
 # MongoDB connection details
 MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = "hyperliquid"
-USERS_COLLECTION = "users"
-MONITOR_COLLECTION = "user_monitor"
 WS_URL = 'wss://rpc.hyperliquid.xyz/ws'
 
 # Logger setup
@@ -41,8 +38,8 @@ async def add_user(users_collection, user):
 # Persistent websocket watcher
 async def websocket_watcher():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-    db = client[DB_NAME]
-    users_collection = db[USERS_COLLECTION]
+    db = client["hyperliquid"]
+    users_collection = db["users"]
 
     while True:
         try:
@@ -70,9 +67,9 @@ async def websocket_watcher():
 # Monitoring/analytics: records user count every day
 async def daily_monitor():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-    db = client[DB_NAME]
-    users_collection = db[USERS_COLLECTION]
-    monitor_collection = db[MONITOR_COLLECTION]
+    db = client["hyperliquid"]
+    users_collection = db["users"]
+    monitor_collection = db["user_monitor"]
 
     while True:
         try:

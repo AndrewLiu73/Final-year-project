@@ -7,14 +7,11 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+
 BASE_DIR = Path(__file__).resolve().parent.parent
-ENV_PATH = BASE_DIR / ".env"
-load_dotenv(ENV_PATH)
+load_dotenv(BASE_DIR / ".env")
 
 MONGO_URI              = os.getenv("MONGO_URI")
-DB_NAME                = "hyperliquid"
-MILLIONAIRE_COLLECTION = "millionaires"
-BIAS_COLLECTION        = "bias_summaries"
 HYPERLIQUID_API        = "https://api.hyperliquid.xyz/info"
 TARGET_COINS           = ["BTC", "ETH", "HYPE"]
 MAX_RETRIES            = 3
@@ -24,8 +21,8 @@ RATE_LIMIT_DELAY       = 0.10
 
 async def fetch_millionaires_wallets():
     client = AsyncIOMotorClient(MONGO_URI)
-    db     = client[DB_NAME]
-    coll   = db[MILLIONAIRE_COLLECTION]
+    db     = client["hyperliquid"]
+    coll   = db["millionaires"]
     docs   = await coll.find({}, {"_id": 0, "wallet": 1}).to_list(None)
     return [d["wallet"] for d in docs if "wallet" in d]
 
@@ -141,8 +138,8 @@ def summarize_bias(wallet_positions):
 
 async def save_bias_to_mongo(bias_summary):
     client = AsyncIOMotorClient(MONGO_URI)
-    db     = client[DB_NAME]
-    coll   = db[BIAS_COLLECTION]
+    db     = client["hyperliquid"]
+    coll   = db["bias_summaries"]
     await coll.insert_one(bias_summary)
 
 

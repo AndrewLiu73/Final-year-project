@@ -1,5 +1,5 @@
 import asyncio
-import aiohttp
+import httpx
 import os
 from pathlib import Path
 from datetime import datetime, timezone
@@ -10,8 +10,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 MONGO_URI       = os.getenv("MONGO_URI")
-DB_NAME         = "hyperliquid"
-OI_COLLECTION   = "exchange_oi"
 
 TARGET_COINS    = ["BTC", "ETH" ,"HYPE"]
 SPIKE_THRESHOLD = 5.0
@@ -40,25 +38,25 @@ def get_trend_label(oi_chg: float, px_chg: float) -> str:
 
 # ── fetchers — all return (oi_usd, mark_px) or None ──────────────────────────
 
-async def fetch_binance_oi(session, coin):
+async def fetch_binance_oi(client, coin):
     symbol = f"{coin}USDT"
     url    = f"https://fapi.binance.com/fapi/v1/openInterest?symbol={symbol}"
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status == 200:
-                data     = await r.json()
-                oi_coins = float(data.get("openInterest", 0))
-                price_url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
-                async with session.get(price_url, timeout=aiohttp.ClientTimeout(total=8)) as pr:
-                    price_data = await pr.json() if pr.status == 200 else {}
-                mark_px = float(price_data.get("markPrice", 0))
-                return oi_coins * mark_px, mark_px
+        r = await client.get(url, timeout=8)
+        if r.status_code == 200:
+            data     = r.json()
+            oi_coins = float(data.get("openInterest", 0))
+            price_url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
+            pr = await client.get(price_url, timeout=8)
+            price_data = pr.json() if pr.status_code == 200 else {}
+            mark_px = float(price_data.get("markPrice", 0))
+            return oi_coins * mark_px, mark_px
     except Exception as e:
         print(f"[Binance {coin}] {e}")
     return None
 
 
-async def fetch_bybit_oi(session, coin):
+async def fetch_bybit_oi(client, coin):
     symbol    = f"{coin}USDT"
     oi_url    = (
         "https://api.bybit.com/v5/market/open-interest"
@@ -69,25 +67,25 @@ async def fetch_bybit_oi(session, coin):
         f"?category=linear&symbol={symbol}"
     )
     try:
-        async with session.get(oi_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status != 200:
-                return None
-            oi_data = await r.json()
-            if oi_data.get("retCode", -1) != 0:
-                return None
-            items = oi_data.get("result", {}).get("list", [])
-            if not items:
-                return None
-            oi_coins = float(items[0].get("openInterest", 0))
+        r = await client.get(oi_url, timeout=8)
+        if r.status_code != 200:
+            return None
+        oi_data = r.json()
+        if oi_data.get("retCode", -1) != 0:
+            return None
+        items = oi_data.get("result", {}).get("list", [])
+        if not items:
+            return None
+        oi_coins = float(items[0].get("openInterest", 0))
 
-        async with session.get(price_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status != 200:
-                return None
-            price_data = await r.json()
-            tickers    = price_data.get("result", {}).get("list", [])
-            if not tickers:
-                return None
-            mark_px = float(tickers[0].get("markPrice", 0))
+        r = await client.get(price_url, timeout=8)
+        if r.status_code != 200:
+            return None
+        price_data = r.json()
+        tickers    = price_data.get("result", {}).get("list", [])
+        if not tickers:
+            return None
+        mark_px = float(tickers[0].get("markPrice", 0))
 
         if mark_px == 0:
             return None
@@ -98,28 +96,28 @@ async def fetch_bybit_oi(session, coin):
         return None
 
 
-async def fetch_okx_oi(session, coin):
+async def fetch_okx_oi(client, coin):
     inst_id   = f"{coin}-USDT-SWAP"
     oi_url    = f"https://www.okx.com/api/v5/public/open-interest?instId={inst_id}"
     price_url = f"https://www.okx.com/api/v5/public/mark-price?instId={inst_id}"
     try:
-        async with session.get(oi_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status != 200:
-                return None
-            data  = await r.json()
-            items = data.get("data", [])
-            if not items:
-                return None
-            oi_usd = float(items[0].get("oiUsd", 0))
+        r = await client.get(oi_url, timeout=8)
+        if r.status_code != 200:
+            return None
+        data  = r.json()
+        items = data.get("data", [])
+        if not items:
+            return None
+        oi_usd = float(items[0].get("oiUsd", 0))
 
-        async with session.get(price_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status != 200:
-                return None
-            price_data  = await r.json()
-            price_items = price_data.get("data", [])
-            if not price_items:
-                return None
-            mark_px = float(price_items[0].get("markPx", 0))
+        r = await client.get(price_url, timeout=8)
+        if r.status_code != 200:
+            return None
+        price_data  = r.json()
+        price_items = price_data.get("data", [])
+        if not price_items:
+            return None
+        mark_px = float(price_items[0].get("markPx", 0))
 
         return oi_usd, mark_px
 
@@ -128,57 +126,57 @@ async def fetch_okx_oi(session, coin):
     return None
 
 
-async def fetch_deribit_oi(session, coin):
+async def fetch_deribit_oi(client, coin):
     url = (
         "https://www.deribit.com/api/v2/public/get_book_summary_by_currency"
         f"?currency={coin}&kind=future"
     )
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-            if r.status == 200:
-                data    = await r.json()
-                results = data.get("result", [])
-                if not results:
-                    return None
+        r = await client.get(url, timeout=8)
+        if r.status_code == 200:
+            data    = r.json()
+            results = data.get("result", [])
+            if not results:
+                return None
 
-                # open_interest is already in USD — do NOT multiply by mark_price
-                total_oi = sum(
-                    float(item.get("open_interest", 0))
-                    for item in results
-                    if item.get("open_interest")
-                )
+            # open_interest is already in USD — do NOT multiply by mark_price
+            total_oi = sum(
+                float(item.get("open_interest", 0))
+                for item in results
+                if item.get("open_interest")
+            )
 
-                # still need mark_px for trend label — grab from perpetual
-                perp = next(
-                    (i for i in results if f"{coin}-PERPETUAL" in i.get("instrument_name", "")),
-                    results[0]
-                )
-                mark_px = float(perp.get("mark_price", 0))
+            # still need mark_px for trend label — grab from perpetual
+            perp = next(
+                (i for i in results if f"{coin}-PERPETUAL" in i.get("instrument_name", "")),
+                results[0]
+            )
+            mark_px = float(perp.get("mark_price", 0))
 
-                return total_oi, mark_px
+            return total_oi, mark_px
 
     except Exception as e:
         print(f"[Deribit {coin}] {e}")
     return None
 
 
-async def fetch_hyperliquid_oi(session, coin):
+async def fetch_hyperliquid_oi(client, coin):
     try:
-        async with session.post(
+        r = await client.post(
             "https://api.hyperliquid.xyz/info",
             json={"type": "metaAndAssetCtxs"},
-            timeout=aiohttp.ClientTimeout(total=8)
-        ) as r:
-            if r.status == 200:
-                data = await r.json()
-                meta = data[0]["universe"]
-                ctxs = data[1]
-                for i, asset in enumerate(meta):
-                    if asset["name"] == coin:
-                        ctx     = ctxs[i]
-                        oi      = float(ctx.get("openInterest", 0))
-                        mark_px = float(ctx.get("markPx", 0))
-                        return oi * mark_px, mark_px
+            timeout=8
+        )
+        if r.status_code == 200:
+            data = r.json()
+            meta = data[0]["universe"]
+            ctxs = data[1]
+            for i, asset in enumerate(meta):
+                if asset["name"] == coin:
+                    ctx     = ctxs[i]
+                    oi      = float(ctx.get("openInterest", 0))
+                    mark_px = float(ctx.get("markPx", 0))
+                    return oi * mark_px, mark_px
     except Exception as e:
         print(f"[Hyperliquid {coin}] {e}")
     return None
@@ -191,7 +189,7 @@ async def upsert_oi(db, exchange, coin, oi_usd, mark_px):
         print(f"[{exchange} {coin}] fetch failed, skipping")
         return
 
-    coll = db[OI_COLLECTION]
+    coll = db["exchange_oi"]
     now  = datetime.now(timezone.utc)
 
     existing = await coll.find_one({"exchange": exchange, "coin": coin})
@@ -260,9 +258,9 @@ async def upsert_oi(db, exchange, coin, oi_usd, mark_px):
 
 async def main():
     client = AsyncIOMotorClient(MONGO_URI)
-    db     = client[DB_NAME]
+    db     = client["hyperliquid"]
 
-    await db[OI_COLLECTION].create_index(
+    await db["exchange_oi"].create_index(
         [("exchange", 1), ("coin", 1)],
         unique=True
     )
@@ -271,14 +269,14 @@ async def main():
         print(f"\nFetching exchange OI at {datetime.now(timezone.utc).isoformat()}")
         print("-" * 60)
 
-        async with aiohttp.ClientSession() as session:
+        async with httpx.AsyncClient() as client:
             for coin in TARGET_COINS:
                 results = await asyncio.gather(
-                    fetch_binance_oi(session,     coin),
-                    fetch_bybit_oi(session,       coin),
-                    fetch_okx_oi(session,         coin),
-                    fetch_deribit_oi(session,     coin),
-                    fetch_hyperliquid_oi(session, coin),
+                    fetch_binance_oi(client,     coin),
+                    fetch_bybit_oi(client,       coin),
+                    fetch_okx_oi(client,         coin),
+                    fetch_deribit_oi(client,     coin),
+                    fetch_hyperliquid_oi(client, coin),
                 )
 
                 exchanges = ["Binance", "Bybit", "OKX", "Deribit", "Hyperliquid"]

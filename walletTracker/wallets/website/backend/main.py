@@ -7,25 +7,13 @@ import time as _time
 import logging
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
 
-scheduler = AsyncIOScheduler()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = "hyperliquid"
-MILLIONAIRES_COLLECTION = "millionaires"
-BIAS_SUMMARIES_COLLECTION = "bias_summaries"
-USERS_COLLECTION = "users"
-BALANCES_COLLECTION = "balances"
-PROFITABILITY_METRICS_COLLECTION = "profitability_metrics"
-EXCHANGES_OI_COLLECTION = "exchange_oi"
-WATCHLISTS_COLLECTION = "watchlists"
-LARGE_POSITIONS_COLLECTION = "open_positions"
-ASSET_CONCENTRATION_COLLECTION = "asset_concentration"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # pulled this out so its not scattered across every endpoint
@@ -52,26 +40,10 @@ def cache_set(key: str, data):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.mongodb_client = AsyncIOMotorClient(MONGO_URI)
-    app.mongodb = app.mongodb_client[DB_NAME]
+    app.mongodb = app.mongodb_client["hyperliquid"]
     # shared httpx client for the /live endpoint so we're not creating
     # a new connection on every single request
     app.http_client = httpx.AsyncClient(timeout=10)
-
-    try:
-        await app.mongodb[BALANCES_COLLECTION].create_index([("account_balance", 1)])
-        await app.mongodb[BALANCES_COLLECTION].create_index([("user", 1)])
-        await app.mongodb[BIAS_SUMMARIES_COLLECTION].create_index([("timestamp", -1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("account_value", -1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("total_pnl_usdc", -1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("win_rate_percentage", -1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("max_drawdown_percentage", 1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("open_positions_count", -1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("is_likely_bot", 1)])
-        await app.mongodb[PROFITABILITY_METRICS_COLLECTION].create_index([("has_trading_activity", 1)])
-        logger.info("indexes created")
-    except Exception as e:
-        logger.warning(f"index creation: {e}")
-
     yield
 
     await app.http_client.aclose()
@@ -101,7 +73,7 @@ async def get_millionaires():
     if cached is not None:
         return cached
 
-    collection = app.mongodb[MILLIONAIRES_COLLECTION]
+    collection = app.mongodb["millionaires"]
     cursor = collection.find({}, {"_id": 0, "wallet": 1, "balance": 1})
     millionaires = [doc async for doc in cursor]
     cache_set("millionaires", millionaires)
@@ -114,7 +86,7 @@ async def get_bias_summaries():
     if cached is not None:
         return cached
 
-    collection = app.mongodb[BIAS_SUMMARIES_COLLECTION]
+    collection = app.mongodb["bias_summaries"]
     cursor = collection.find({}, {"_id": 0})
     results = [doc async for doc in cursor]
     cache_set("bias_summaries", results)
@@ -127,7 +99,7 @@ async def get_bias_aggregate():
     if cached is not None:
         return cached
 
-    collection = app.mongodb[BIAS_SUMMARIES_COLLECTION]
+    collection = app.mongodb["bias_summaries"]
     cursor = collection.find({}, {"_id": 0, "timestamp": 1, "aggregate": 1})
     aggregates = [doc async for doc in cursor]
     cache_set("bias_aggregate", aggregates)
@@ -138,7 +110,7 @@ async def get_bias_aggregate():
 @app.get("/api/debug/sample-doc")
 async def debug_sample_doc():
     try:
-        coll = app.mongodb[BALANCES_COLLECTION]
+        coll = app.mongodb["balances"]
         doc = await coll.find_one({}, {"_id": 0})
         return {"sample_doc": doc}
     except Exception as e:
@@ -147,7 +119,7 @@ async def debug_sample_doc():
 @app.get("/api/debug/profitability-sample")
 async def debug_profitability_sample():
     try:
-        coll = app.mongodb[PROFITABILITY_METRICS_COLLECTION]
+        coll = app.mongodb["profitability_metrics"]
         doc = await coll.find_one({}, {"_id": 0})
         count = await coll.count_documents({})
         return {"sample_doc": doc, "total_documents": count}
@@ -163,7 +135,7 @@ async def get_users_with_balances(
     page_size: int = Query(100, ge=1, le=500),
     sort_by: str = Query("balance", regex="^(balance|wallet)$")
 ) -> Dict:
-    balances_coll = app.mongodb[BALANCES_COLLECTION]
+    balances_coll = app.mongodb["balances"]
 
     min_val = min_balance if min_balance is not None else 0
     max_val = max_balance if max_balance is not None else float('inf')
@@ -210,7 +182,7 @@ async def get_profitable_traders(
     active_only: bool = Query(False),
     is_bot: str = Query(None),
 ) -> Dict:
-    coll = app.mongodb[PROFITABILITY_METRICS_COLLECTION]
+    coll = app.mongodb["profitability_metrics"]
 
     query = {"has_trading_activity": True}
 
@@ -297,7 +269,7 @@ async def get_profitable_traders(
 
 @app.get("/api/users/trader/{wallet_address}")
 async def get_trader_details(wallet_address: str) -> Dict:
-    coll = app.mongodb[PROFITABILITY_METRICS_COLLECTION]
+    coll = app.mongodb["profitability_metrics"]
 
     trader = await coll.find_one({"wallet_address": wallet_address}, {"_id": 0})
     if not trader:
@@ -428,7 +400,7 @@ async def get_exchange_oi():
         {"$replaceRoot": {"newRoot": "$doc"}}
     ]
 
-    coll = app.mongodb[EXCHANGES_OI_COLLECTION]
+    coll = app.mongodb["exchange_oi"]
     results = await coll.aggregate(pipeline).to_list(length=100)
 
     grouped = {}
@@ -470,7 +442,7 @@ async def get_large_positions(
     if cached is not None:
         return cached
 
-    coll = app.mongodb[LARGE_POSITIONS_COLLECTION]
+    coll = app.mongodb["open_positions"]
 
     query = {}
     if min_notional_usd:
@@ -524,7 +496,7 @@ async def get_asset_concentration():
     if cached is not None:
         return cached
 
-    coll = app.mongodb[ASSET_CONCENTRATION_COLLECTION]
+    coll = app.mongodb["asset_concentration"]
     cursor = coll.find({}, {"_id": 0}).sort("total_notional", -1)
     results = await cursor.to_list(length=200)
 
@@ -543,13 +515,13 @@ class WatchlistItem(BaseModel):
 
 @app.get("/api/watchlist/{user_id}")
 async def get_watchlist(user_id: str):
-    col = app.mongodb[WATCHLISTS_COLLECTION]
+    col = app.mongodb["watchlists"]
     cursor = col.find({"user_id": user_id}, {"_id": 0})
     return [doc async for doc in cursor]
 
 @app.post("/api/watchlist")
 async def add_to_watchlist(item: WatchlistItem):
-    col = app.mongodb[WATCHLISTS_COLLECTION]
+    col = app.mongodb["watchlists"]
     existing = await col.find_one({"user_id": item.user_id, "wallet_address": item.wallet_address})
     if existing:
         raise HTTPException(status_code=409, detail="Already in watchlist")
@@ -558,7 +530,7 @@ async def add_to_watchlist(item: WatchlistItem):
 
 @app.delete("/api/watchlist/{user_id}/{wallet_address}")
 async def remove_from_watchlist(user_id: str, wallet_address: str):
-    col = app.mongodb[WATCHLISTS_COLLECTION]
+    col = app.mongodb["watchlists"]
     result = await col.delete_one({"user_id": user_id, "wallet_address": wallet_address})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found in watchlist")

@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -18,7 +18,6 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from profitabilityScanner import ProfitabilityScanner
 
 MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = "hyperliquid"
 
 
 async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
@@ -82,10 +81,10 @@ async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
         print("\nMongo save skipped (--dry-run mode)")
         return metrics
 
-    # save to mongo synchronously since its just one document
-    client = MongoClient(MONGO_URI)
-    db = client[DB_NAME]
-    result = db.profitability_metrics.update_one(
+    # save to mongo asynchronously using motor
+    client = AsyncIOMotorClient(MONGO_URI)
+    db = client["hyperliquid"]
+    result = await db.profitability_metrics.update_one(
         {"wallet_address": wallet_address},
         {"$set": metrics},
         upsert=True

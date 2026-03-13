@@ -5,16 +5,15 @@ Saves results to the 'open_positions' MongoDB collection (upserts, never duplica
 """
 
 import os
-import sys
 import time
-import argparse
 import logging
+from pathlib import Path
 from datetime import datetime
 from pymongo import MongoClient, UpdateOne
 from dotenv import load_dotenv
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,8 +25,6 @@ logger = logging.getLogger("large_positions")
 
 class LargeTradesFinder:
 
-    POSITIONS_COLLECTION = "open_positions"
-    CONCENTRATION_COLLECTION = "asset_concentration"
 
     def __init__(self, mongo_uri):
         self.client = MongoClient(mongo_uri)
@@ -36,17 +33,17 @@ class LargeTradesFinder:
 
     def setup_indexes(self):
         # unique key per position: wallet + asset + direction
-        self.db[self.POSITIONS_COLLECTION].create_index(
+        self.db["open_positions"].create_index(
             [("wallet_address", 1), ("asset", 1), ("direction", 1)],
             unique=True
         )
-        self.db[self.POSITIONS_COLLECTION].create_index([("notional_usd", -1)])
-        self.db[self.POSITIONS_COLLECTION].create_index([("asset", 1)])
-        self.db[self.POSITIONS_COLLECTION].create_index([("direction", 1)])
-        self.db[self.POSITIONS_COLLECTION].create_index([("unrealized_pnl", -1)])
+        self.db["open_positions"].create_index([("notional_usd", -1)])
+        self.db["open_positions"].create_index([("asset", 1)])
+        self.db["open_positions"].create_index([("direction", 1)])
+        self.db["open_positions"].create_index([("unrealized_pnl", -1)])
 
-        self.db[self.CONCENTRATION_COLLECTION].create_index("asset", unique=True)
-        self.db[self.CONCENTRATION_COLLECTION].create_index([("total_notional", -1)])
+        self.db["asset_concentration"].create_index("asset", unique=True)
+        self.db["asset_concentration"].create_index([("total_notional", -1)])
         logger.info("indexes ready")
 
     def find_large_positions(self, min_notional_usd=10000, min_unrealized_pnl=None, asset=None):
@@ -120,7 +117,7 @@ class LargeTradesFinder:
         Positions that no longer qualify get removed.
         """
         now = datetime.now()
-        coll = self.db[self.POSITIONS_COLLECTION]
+        coll = self.db["open_positions"]
 
         # build bulk upserts
         ops = []
@@ -201,7 +198,7 @@ class LargeTradesFinder:
 
         results = list(self.db.profitability_metrics.aggregate(pipeline))
         now = datetime.now()
-        coll = self.db[self.CONCENTRATION_COLLECTION]
+        coll = self.db["asset_concentration"]
 
         seen_assets = set()
         ops = []
@@ -314,18 +311,10 @@ class LargeTradesFinder:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Monitor large open positions")
-    parser.add_argument("--min-notional", type=float, default=10000,
-                        help="Minimum notional USD (default: 10000)")
-    parser.add_argument("--asset", type=str, default=None,
-                        help="Filter by asset (e.g. BTC, ETH)")
-    parser.add_argument("--top", type=int, default=20,
-                        help="Number of top positions to show (default: 20)")
-    parser.add_argument("--interval", type=int, default=60,
-                        help="Refresh interval in seconds (default: 60)")
-    parser.add_argument("--once", action="store_true",
-                        help="Run once and exit instead of looping")
-    args = parser.parse_args()
+    min_notional = 10000
+    asset = None
+    top = 20
+    interval = 60
 
     mongo_uri = os.getenv('MONGO_URI')
     if not mongo_uri:
@@ -341,11 +330,10 @@ def main():
         cycle = 0
         while True:
             cycle += 1
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             positions = finder.find_large_positions(
-                min_notional_usd=args.min_notional,
-                asset=args.asset,
+                min_notional_usd=min_notional,
+                asset=asset,
             )
 
             # save ALL qualifying positions to MongoDB (upsert)
@@ -353,7 +341,7 @@ def main():
             concentration = finder.save_concentration(min_positions=3)
 
             # build a snapshot of the current top positions so we can detect changes
-            top_positions = positions[:args.top]
+            top_positions = positions[:top]
             current_snapshot = set()
             for p in top_positions:
                 pos = p['position']
@@ -368,13 +356,13 @@ def main():
                 os.system('cls' if os.name == 'nt' else 'clear')
 
                 logger.info(f"Cycle #{cycle}  |  "
-                      f"Min notional: ${args.min_notional:,.0f}  |  "
-                      f"Asset: {args.asset or 'ALL'}  |  "
-                      f"Refresh: {args.interval}s  |  "
+                      f"Min notional: ${min_notional:,.0f}  |  "
+                      f"Asset: {asset or 'ALL'}  |  "
+                      f"Refresh: {interval}s  |  "
                       f"Total qualifying: {len(positions)}")
 
                 if new_entries and cycle > 1:
-                    logger.info(f"{len(new_entries)} NEW position(s) entered the top {args.top}")
+                    logger.info(f"{len(new_entries)} NEW position(s) entered the top {top}")
                 if closed_entries and cycle > 1:
                     logger.info(f"{len(closed_entries)} position(s) dropped out")
 
@@ -386,11 +374,7 @@ def main():
                       f"{len(positions)} saved to DB")
 
             prev_snapshot = current_snapshot
-
-            if args.once:
-                break
-
-            time.sleep(args.interval)
+            time.sleep(interval)
 
     except KeyboardInterrupt:
         print("\nStopped.")

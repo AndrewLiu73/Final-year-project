@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useUserId from '../hooks/useUsers';
-import { formatBalance } from '../utils/formatters';
+import useSort from '../hooks/useSort';
 import styles from './profitability.module.css';
 import watchStyles from './watchlist.module.css';
 import API_BASE from '../config';
+import TraderTable from '../components/TraderTable';
 
 export default function Watchlist() {
     const navigate = useNavigate();
@@ -13,8 +14,8 @@ export default function Watchlist() {
     const [traders, setTraders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [sortBy, setSortBy] = useState('pnl');
-    const [sortDirection, setSortDirection] = useState('desc');
+    // same sorting hook used across all pages now
+    const { sortBy, sortDirection, handleSort } = useSort('pnl', 'desc');
 
     const [telegramId, setTelegramId] = useState(localStorage.getItem("telegram_id") || "");
     const [tgSaved, setTgSaved] = useState(!!localStorage.getItem("telegram_id"));
@@ -68,19 +69,7 @@ export default function Watchlist() {
             .then(() => setTraders(prev => prev.filter(t => t.wallet !== wallet)));
     }
 
-    const handleSort = (column) => {
-        if (sortBy === column) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortBy(column);
-            setSortDirection('desc');
-        }
-    };
-
-    const SortIndicator = ({ column }) => {
-        if (sortBy !== column) return null;
-        return <span className={styles.sortIndicator}>{sortDirection === 'asc' ? '↑' : '↓'}</span>;
-    };
+    // handleSort now comes from useSort hook (shared with profitability + open positions)
 
     const sortedTraders = useMemo(() => {
         const filtered = searchQuery
@@ -213,68 +202,21 @@ export default function Watchlist() {
                 </div>
 
                 {/* Table */}
-                <div className={styles.tableContainer}>
-                    <div className={watchStyles.tableHeader}>
-                        <div className={styles.colWallet}>Wallet</div>
-                        <div className={`${styles.colBalance} ${styles.sortable}`} onClick={() => handleSort('balance')}>Balance <SortIndicator column="balance" /></div>
-                        <div className={`${styles.colPnl} ${styles.sortable}`} onClick={() => handleSort('pnl')}>All-Time PnL <SortIndicator column="pnl" /></div>
-                        <div className={`${styles.colOpenTrades} ${styles.sortable}`} onClick={() => handleSort('openTrades')}>Open Trades <SortIndicator column="openTrades" /></div>
-                        <div className={`${styles.colWinrate} ${styles.sortable}`} onClick={() => handleSort('winrate')}>Winrate <SortIndicator column="winrate" /></div>
-                        <div className={`${styles.colDrawdown} ${styles.sortable}`} onClick={() => handleSort('drawdown')}>Max DD <SortIndicator column="drawdown" /></div>
-                        <div className={styles.colWatch}>Remove</div>
-                    </div>
-
-                    <div className={styles.tableBody}>
-                        {sortedTraders.length === 0 ? (
-                            <div className={styles.emptyState}>
-                                <p>No traders in your watchlist yet. Hit the star on the Profitable Traders page to add some.</p>
-                            </div>
-                        ) : (
-                            sortedTraders.map((trader, index) => {
-                                const profitColor = trader.isProfitable ? '#3ba55d' : '#ed4245';
-                                return (
-                                    <div key={`${trader.wallet}-${index}`} className={watchStyles.tableRow}>
-                                        <div className={styles.colWallet}>
-                                            <div className={styles.walletCell}>
-                                                <div className={styles.statusDot} style={{ background: profitColor }} />
-                                                <span className={styles.walletText} title={trader.wallet} onClick={() => navigate(`/trader/${trader.wallet}`)}>
-                                                    {trader.wallet.slice(0, 6)}...{trader.wallet.slice(-4)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className={styles.colBalance}>
-                                            <span className={styles.valueText}>{formatBalance(trader.currentBalance)}</span>
-                                        </div>
-                                        <div className={styles.colPnl}>
-                                            <div className={styles.pnlCell}>
-                                                <span className={styles.pnlValue} style={{ color: profitColor }}>
-                                                    {trader.gainDollar > 0 ? '+' : ''}{formatBalance(trader.gainDollar)}
-                                                </span>
-                                                <span className={styles.pnlPercent} style={{ color: profitColor }}>
-                                                    ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent?.toFixed(1)}%)
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className={styles.colOpenTrades}>
-                                            <span className={styles.valueText}>{trader.openPositionsCount || 0}</span>
-                                        </div>
-                                        <div className={styles.colWinrate}>
-                                            <span className={styles.valueText}>{trader.winrate ? `${trader.winrate.toFixed(1)}%` : '-'}</span>
-                                        </div>
-                                        <div className={styles.colDrawdown}>
-                                            <span className={styles.valueText}>{trader.maxDrawdown ? `${trader.maxDrawdown.toFixed(1)}%` : '-'}</span>
-                                        </div>
-                                        <div className={styles.colWatch}>
-                                            <span className={styles.watchStar} onClick={() => removeFromWatchlist(trader.wallet)} title="Remove from watchlist" style={{ color: '#f0b132' }}>
-                                                ★
-                                            </span>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
-                </div>
+                {/* Reusing the same TraderTable component as profitability page */}
+                <TraderTable
+                    traders={sortedTraders}
+                    sortBy={sortBy}
+                    sortDirection={sortDirection}
+                    handleSort={handleSort}
+                    onWalletClick={(wallet) => navigate(`/trader/${wallet}`)}
+                    actionLabel="Remove"
+                    onAction={removeFromWatchlist}
+                    actionIcon="★"
+                    actionColor="#f0b132"
+                    styles={styles}
+                    headerClassName={watchStyles.tableHeader}
+                    rowClassName={watchStyles.tableRow}
+                />
             </div>
         </div>
     );

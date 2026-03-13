@@ -34,10 +34,6 @@ load_dotenv(ENV_PATH)
 # Configuration
 class Config:
     MONGO_URI = os.getenv("MONGO_URI")
-    DB_NAME = os.getenv("DB_NAME", "hyperliquid")
-    USERS_COLLECTION = "users"
-    MONITOR_COLLECTION = "user_monitor"
-    METRICS_COLLECTION = "system_metrics"
     WS_URL = "wss://api.hyperliquid.xyz/ws"
     REST_API_URL = "https://api.hyperliquid.xyz/info"
     MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", 86400))
@@ -174,7 +170,7 @@ async def batch_add_users(users_collection, user_batch):
 
 # Log metrics
 async def log_metrics(db, metric_type, value, metadata=None):
-    metrics_collection = db[Config.METRICS_COLLECTION]
+    metrics_collection = db["system_metrics"]
     doc = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "metric_type": metric_type,
@@ -191,7 +187,7 @@ async def log_metrics(db, metric_type, value, metadata=None):
 async def setup_indexes(db):
     """Create database indexes (skip if already exist)"""
     try:
-        users_collection = db[Config.USERS_COLLECTION]
+        users_collection = db["users"]
 
         # Get existing indexes
         existing_indexes = await users_collection.index_information()
@@ -532,7 +528,7 @@ async def backfill_from_rest_api(users_collection):
 # Real-time WebSocket
 async def websocket_watcher(db):
     """Real-time trade tracking"""
-    users_collection = db[Config.USERS_COLLECTION]
+    users_collection = db["users"]
 
     coins = await get_active_coins()
     coins_to_monitor = coins[:Config.MAX_COIN_SUBSCRIPTIONS]
@@ -644,8 +640,8 @@ async def main():
     logger.info("=" * 70)
 
     client = motor.motor_asyncio.AsyncIOMotorClient(Config.MONGO_URI)
-    db = client[Config.DB_NAME]
-    users_collection = db[Config.USERS_COLLECTION]
+    db = client["hyperliquid"]
+    users_collection = db["users"]
 
     await setup_indexes(db)
 

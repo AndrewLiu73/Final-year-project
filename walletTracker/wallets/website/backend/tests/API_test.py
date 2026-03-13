@@ -2,10 +2,12 @@ import requests
 import json
 import os
 import time
+from pathlib import Path
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 BASE_URL   = "https://api.hyperliquid.xyz/info"
 DELAY      = 1.5   # slightly more conservative than 1.2

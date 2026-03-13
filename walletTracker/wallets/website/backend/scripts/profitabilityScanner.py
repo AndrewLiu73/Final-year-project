@@ -2,18 +2,18 @@
 # runs continuously on the CS server
 
 import asyncio
-import sys
 import os
 import logging
 import time
-import traceback
+from pathlib import Path
 from datetime import datetime
-from pymongo import MongoClient, UpdateOne
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import UpdateOne
 from dotenv import load_dotenv
 import httpx
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanner.log")
 
@@ -35,7 +35,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 class ProfitabilityScanner:
 
     def __init__(self, mongo_uri, rpm=200):
-        self.client = MongoClient(mongo_uri)
+        self.client = AsyncIOMotorClient(mongo_uri)
         self.db = self.client['hyperliquid']
         self.delay = 60.0 / rpm
 
@@ -67,7 +67,8 @@ class ProfitabilityScanner:
         self._phase1_done = False
         self._cycles_since_phase1_check = 0
 
-        self.setup_indexes()
+        # indexes get set up in run_continuous() since motor needs an event loop
+        self._indexes_created = False
 
     async def _get_http(self):
         """lazy init so we don't create the client until we're inside an event loop"""
@@ -79,26 +80,29 @@ class ProfitabilityScanner:
         if self._http and not self._http.is_closed:
             await self._http.aclose()
 
-    def setup_indexes(self):
+    async def setup_indexes(self):
+        if self._indexes_created:
+            return
         logger.info("setting up indexes")
 
         # these indexes match the sort/filter fields the frontend actually queries on.
         # without them mongo does a full collection scan on every /api/users/profitable call
-        self.db.profitability_metrics.create_index("wallet_address", unique=True)
-        self.db.profitability_metrics.create_index([("total_pnl_usdc", -1)])
-        self.db.profitability_metrics.create_index("has_trading_activity")
-        self.db.profitability_metrics.create_index("account_value")
-        self.db.profitability_metrics.create_index("win_rate_percentage")
-        self.db.profitability_metrics.create_index("trade_count")
-        self.db.profitability_metrics.create_index("is_likely_bot")
-        self.db.profitability_metrics.create_index("user_role")
-        self.db.profitability_metrics.create_index("fee_tier")
-        self.db.profitability_metrics.create_index("open_positions_count")
-        self.db.users.create_index("user", unique=True)
+        await self.db.profitability_metrics.create_index("wallet_address", unique=True)
+        await self.db.profitability_metrics.create_index([("total_pnl_usdc", -1)])
+        await self.db.profitability_metrics.create_index("has_trading_activity")
+        await self.db.profitability_metrics.create_index("account_value")
+        await self.db.profitability_metrics.create_index("win_rate_percentage")
+        await self.db.profitability_metrics.create_index("trade_count")
+        await self.db.profitability_metrics.create_index("is_likely_bot")
+        await self.db.profitability_metrics.create_index("user_role")
+        await self.db.profitability_metrics.create_index("fee_tier")
+        await self.db.profitability_metrics.create_index("open_positions_count")
+        await self.db.users.create_index("user", unique=True)
 
+        self._indexes_created = True
         logger.info("indexes done\n")
 
-    def get_wallets_to_scan(self, batch_size=100):
+    async def get_wallets_to_scan(self, batch_size=100):
         """
         Two-phase wallet selection:
 
@@ -135,12 +139,12 @@ class ProfitabilityScanner:
                 {"$limit": batch_size}
             ]
 
-            never_scanned = [doc['user'] for doc in self.db.users.aggregate(pipeline)]
+            never_scanned = [doc['user'] async for doc in self.db.users.aggregate(pipeline)]
 
             if never_scanned:
                 self._phase1_done = False
                 count_pipeline = pipeline[:-1] + [{"$count": "total"}]
-                count_result = list(self.db.users.aggregate(count_pipeline))
+                count_result = await self.db.users.aggregate(count_pipeline).to_list(None)
                 total_unscanned = count_result[0]['total'] if count_result else len(never_scanned)
                 remaining = total_unscanned - len(never_scanned)
 
@@ -156,12 +160,10 @@ class ProfitabilityScanner:
         # -- phase 2: rescan the stalest wallets --
         # all wallets have been scanned at least once, so grab the ones
         # with the oldest last_updated and refresh them
-        stalest = list(
-            self.db.profitability_metrics.find(
-                {},
-                {"wallet_address": 1, "last_updated": 1, "_id": 0}
-            ).sort("last_updated", 1).limit(batch_size)
-        )
+        stalest = await self.db.profitability_metrics.find(
+            {},
+            {"wallet_address": 1, "last_updated": 1, "_id": 0}
+        ).sort("last_updated", 1).limit(batch_size).to_list(batch_size)
 
         if not stalest:
             logger.info("no wallets in profitability_metrics at all")
@@ -439,8 +441,7 @@ class ProfitabilityScanner:
                 }
 
         except Exception as e:
-            logger.error(f"  error on {wallet_address}: {e}")
-            traceback.print_exc()
+            logger.error(f"  error on {wallet_address}: {e}", exc_info=True)
             return None
 
         # -- fills & trade stats --
@@ -479,7 +480,7 @@ class ProfitabilityScanner:
         if is_likely_bot:
             # for bots we just save minimal data and move on, no point computing
             # all the detailed metrics for an algo nobody's going to look at
-            self.db.profitability_metrics.update_one(
+            await self.db.profitability_metrics.update_one(
                 {"wallet_address": wallet_address},
                 {"$set": {
                     "wallet_address": wallet_address,
@@ -585,7 +586,7 @@ class ProfitabilityScanner:
                     self._active_slots.pop(slot, None)
 
     async def scan_batch(self, batch_size=100):
-        wallets = self.get_wallets_to_scan(batch_size)
+        wallets = await self.get_wallets_to_scan(batch_size)
         if not wallets:
             logger.info("no wallets to scan")
             return 0
@@ -641,7 +642,7 @@ class ProfitabilityScanner:
                 errors += 1
 
         if ops:
-            self.db.profitability_metrics.bulk_write(ops, ordered=False)
+            await self.db.profitability_metrics.bulk_write(ops, ordered=False)
 
         print(f"\nbatch done:")
         print(f"  processed:    {processed}")
@@ -661,6 +662,8 @@ class ProfitabilityScanner:
     async def run_continuous(self):
         print("profitability scanner starting up")
         print(f"rate: {60.0 / self.delay:.0f} requests per minute\n")
+
+        await self.setup_indexes()
 
         cycle = 0
         try:

@@ -1,14 +1,15 @@
 import asyncio
 import os
+from pathlib import Path
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import httpx
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 MONGO_URI      = os.getenv("MONGO_URI")
-DB_NAME        = os.getenv("DB_NAME", "hyperliquid")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 HL_API         = "https://api.hyperliquid.xyz/info"
 
@@ -115,7 +116,7 @@ async def bias_logic(db, chat_id):
 async def main():
     chat_id = input("Enter your Telegram chat ID: ").strip()
     client  = AsyncIOMotorClient(MONGO_URI)
-    db      = client[DB_NAME]
+    db      = client["hyperliquid"]
 
     await bias_logic(db, chat_id)
 

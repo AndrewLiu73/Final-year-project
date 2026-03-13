@@ -10,10 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_PATH)
 
-MONGO_URI                    = os.getenv("MONGO_URI")
-DB_NAME                      = "hyperliquid"
-PROFITABILITY_COLLECTION     = "profitability_metrics"
-MILLIONAIRES_COLLECTION      = "millionaires"
+MONGO_URI = os.getenv("MONGO_URI")
 
 # Minimum account value to qualify as a millionaire
 THRESHOLD = 1_000_000.0
@@ -21,10 +18,10 @@ THRESHOLD = 1_000_000.0
 
 async def extract_millionaires():
     client = AsyncIOMotorClient(MONGO_URI)
-    db     = client[DB_NAME]
+    db     = client["hyperliquid"]
 
-    profitability_coll = db[PROFITABILITY_COLLECTION]
-    millionaires_coll  = db[MILLIONAIRES_COLLECTION]
+    profitability_coll = db["profitability_metrics"]
+    millionaires_coll  = db["millionaires"]
 
     # Fetch all wallets above the threshold that have trading activity
     cursor = profitability_coll.find(
@@ -95,10 +92,10 @@ async def remove_below_threshold():
     Call this if you want the collection to stay current.
     """
     client = AsyncIOMotorClient(MONGO_URI)
-    db     = client[DB_NAME]
+    db     = client["hyperliquid"]
 
-    profitability_coll = db[PROFITABILITY_COLLECTION]
-    millionaires_coll  = db[MILLIONAIRES_COLLECTION]
+    profitability_coll = db["profitability_metrics"]
+    millionaires_coll  = db["millionaires"]
 
     # Get all wallets currently in millionaires
     existing = await millionaires_coll.find({}, {"_id": 0, "wallet": 1}).to_list(None)
@@ -121,7 +118,7 @@ async def remove_below_threshold():
 
 
 async def main():
-    print(f"Extracting millionaires from {PROFITABILITY_COLLECTION}...")
+    print(f"Extracting millionaires from profitability_metrics...")
     print(f"Threshold: ${THRESHOLD:,.0f}")
     print("-" * 50)
 
