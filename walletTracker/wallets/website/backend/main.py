@@ -509,29 +509,29 @@ async def getAssetConcentration():
 
 
 class WatchlistItem(BaseModel):
-    user_id: str
-    wallet_address: str
+    userId: str
+    walletAddress: str
     label: str = ""
 
-@app.get("/api/watchlist/{user_id}")
-async def getWatchlist(user_id: str):
+@app.get("/api/watchlist/{userId}")
+async def getWatchlist(userId: str):
     col = app.mongodb["watchlists"]
-    cursor = col.find({"user_id": user_id}, {"_id": 0})
+    cursor = col.find({"user_id": userId}, {"_id": 0})
     return [doc async for doc in cursor]
 
 @app.post("/api/watchlist")
 async def addToWatchlist(item: WatchlistItem):
     col = app.mongodb["watchlists"]
-    existing = await col.find_one({"user_id": item.user_id, "wallet_address": item.wallet_address})
+    existing = await col.find_one({"user_id": item.userId, "wallet_address": item.walletAddress})
     if existing:
         raise HTTPException(status_code=409, detail="Already in watchlist")
-    await col.insert_one(item.model_dump())
+    await col.insert_one({"user_id": item.userId, "wallet_address": item.walletAddress, "label": item.label})
     return {"message": "Added to watchlist"}
 
-@app.delete("/api/watchlist/{user_id}/{wallet_address}")
-async def removeFromWatchlist(user_id: str, wallet_address: str):
+@app.delete("/api/watchlist/{userId}/{walletAddress}")
+async def removeFromWatchlist(userId: str, walletAddress: str):
     col = app.mongodb["watchlists"]
-    result = await col.delete_one({"user_id": user_id, "wallet_address": wallet_address})
+    result = await col.delete_one({"user_id": userId, "wallet_address": walletAddress})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found in watchlist")
     return {"message": "Removed from watchlist"}
@@ -540,8 +540,8 @@ async def removeFromWatchlist(user_id: str, wallet_address: str):
 async def saveTelegramId(data: dict):
     usersCol = app.mongodb["users"]
     await usersCol.update_one(
-        {"user_id": data["user_id"]},
-        {"$set": {"user_id": data["user_id"], "telegram_id": data["telegram_id"]}},
+        {"user_id": data["userId"]},
+        {"$set": {"user_id": data["userId"], "telegram_id": data["telegramId"]}},
         upsert=True
     )
     return {"message": "Telegram ID saved"}

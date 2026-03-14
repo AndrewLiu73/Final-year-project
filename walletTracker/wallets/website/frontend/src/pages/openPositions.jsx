@@ -35,11 +35,11 @@ export default function OpenPositionsPage() {
 
     try {
       const params = new URLSearchParams({
-        min_notional_usd: minNotional || '0',
-        sort_by: sortBy,
-        sort_direction: sortDirection,
+        minNotionalUsd: minNotional || '0',
+        sortBy: sortBy,
+        sortDirection: sortDirection,
         page: String(page),
-        page_size: '50',
+        pageSize: '50',
       });
       if (assetFilter) params.append('asset', assetFilter);
       if (directionFilter) params.append('direction', directionFilter);

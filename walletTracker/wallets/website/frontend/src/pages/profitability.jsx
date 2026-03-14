@@ -79,7 +79,7 @@ useEffect(() => {
     fetch(`${API_BASE}/api/watchlist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, wallet_address: wallet, label: wallet })
+      body: JSON.stringify({ userId: userId, walletAddress: wallet, label: wallet })
     }).then(res => {
       if (res.status === 409) alert("Already in watchlist");
       else alert("Added to watchlist!");

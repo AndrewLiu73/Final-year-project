@@ -60,7 +60,7 @@ export default function Watchlist() {
         fetch(`${API_BASE}/api/users/telegram`, {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ user_id: userId, telegram_id: telegramId })
+            body:    JSON.stringify({ userId: userId, telegramId: telegramId })
         }).then(() => setTgSaved(true));
     };
 

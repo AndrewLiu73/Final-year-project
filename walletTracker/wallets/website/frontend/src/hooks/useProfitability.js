@@ -27,20 +27,20 @@ export const useProfitableTraders = (filters = {}, pageSize = 100, sortBy = 'pnl
 
       const params = new URLSearchParams();
       params.append('page', page);
-      params.append('page_size', pageSize);
-      params.append('sort_by', sortBy);
-      params.append('sort_direction', sortDirection);
+      params.append('pageSize', pageSize);
+      params.append('sortBy', sortBy);
+      params.append('sortDirection', sortDirection);
 
-      if (filters.minWinrate !== undefined) params.append('min_winrate', filters.minWinrate);
-      if (filters.maxDrawdown !== undefined) params.append('max_drawdown', filters.maxDrawdown);
-      if (filters.minBalance !== undefined) params.append('min_balance', filters.minBalance);
-      if (filters.maxBalance !== undefined) params.append('max_balance', filters.maxBalance);
-      if (filters.activeOnly) params.append('active_only', 'true');
+      if (filters.minWinrate !== undefined) params.append('minWinrate', filters.minWinrate);
+      if (filters.maxDrawdown !== undefined) params.append('maxDrawdown', filters.maxDrawdown);
+      if (filters.minBalance !== undefined) params.append('minBalance', filters.minBalance);
+      if (filters.maxBalance !== undefined) params.append('maxBalance', filters.maxBalance);
+      if (filters.activeOnly) params.append('activeOnly', 'true');
 
       if (filters.botFilter === 'yes') {
-        params.append('is_bot', 'true');
+        params.append('isBot', 'true');
       } else if (filters.botFilter === 'no') {
-        params.append('is_bot', 'false');
+        params.append('isBot', 'false');
       }
 
       const response = await fetch(`${API_URL}/users/profitable?${params}`, {
