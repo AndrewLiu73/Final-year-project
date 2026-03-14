@@ -25,13 +25,13 @@ logger = logging.getLogger("backend")
 # if i ever run multiple uvicorn workers id need redis instead
 _cache: Dict[str, dict] = {}
 
-def cache_get(key: str, ttl: int = 300):
+def cacheGet(key: str, ttl: int = 300):
     entry = _cache.get(key)
     if entry and (_time.time() - entry["ts"]) < ttl:
         return entry["data"]
     return None
 
-def cache_set(key: str, data):
+def cacheSet(key: str, data):
     _cache[key] = {"data": data, "ts": _time.time()}
 
 
@@ -62,53 +62,53 @@ app.add_middleware(
 
 
 @app.get("/")
-def read_root():
+def readRoot():
     return {"Root page"}
 
 
 # these three endpoints barely change so 5 min cache is fine
 @app.get("/api/millionaires", response_model=List[dict])
-async def get_millionaires():
-    cached = cache_get("millionaires", ttl=300)
+async def getMillionaires():
+    cached = cacheGet("millionaires", ttl=300)
     if cached is not None:
         return cached
 
     collection = app.mongodb["millionaires"]
     cursor = collection.find({}, {"_id": 0, "wallet": 1, "balance": 1})
     millionaires = [doc async for doc in cursor]
-    cache_set("millionaires", millionaires)
+    cacheSet("millionaires", millionaires)
     return millionaires
 
 
 @app.get("/api/bias-summaries")
-async def get_bias_summaries():
-    cached = cache_get("bias_summaries", ttl=300)
+async def getBiasSummaries():
+    cached = cacheGet("bias_summaries", ttl=300)
     if cached is not None:
         return cached
 
     collection = app.mongodb["bias_summaries"]
     cursor = collection.find({}, {"_id": 0})
     results = [doc async for doc in cursor]
-    cache_set("bias_summaries", results)
+    cacheSet("bias_summaries", results)
     return results
 
 
 @app.get("/api/bias-aggregate")
-async def get_bias_aggregate():
-    cached = cache_get("bias_aggregate", ttl=300)
+async def getBiasAggregate():
+    cached = cacheGet("bias_aggregate", ttl=300)
     if cached is not None:
         return cached
 
     collection = app.mongodb["bias_summaries"]
     cursor = collection.find({}, {"_id": 0, "timestamp": 1, "aggregate": 1})
     aggregates = [doc async for doc in cursor]
-    cache_set("bias_aggregate", aggregates)
+    cacheSet("bias_aggregate", aggregates)
     return aggregates
 
 
 # debug endpoints - handy for checking whats actually in the db
 @app.get("/api/debug/sample-doc")
-async def debug_sample_doc():
+async def debugSampleDoc():
     try:
         coll = app.mongodb["balances"]
         doc = await coll.find_one({}, {"_id": 0})
@@ -117,7 +117,7 @@ async def debug_sample_doc():
         return {"error": str(e)}
 
 @app.get("/api/debug/profitability-sample")
-async def debug_profitability_sample():
+async def debugProfitabilitySample():
     try:
         coll = app.mongodb["profitability_metrics"]
         doc = await coll.find_one({}, {"_id": 0})
@@ -128,17 +128,17 @@ async def debug_profitability_sample():
 
 
 @app.get("/api/users/with-balances")
-async def get_users_with_balances(
-    min_balance: Optional[float] = Query(None, ge=0),
-    max_balance: Optional[float] = Query(None, ge=0),
+async def getUsersWithBalances(
+    minBalance: Optional[float] = Query(None, ge=0),
+    maxBalance: Optional[float] = Query(None, ge=0),
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=500),
-    sort_by: str = Query("balance", regex="^(balance|wallet)$")
+    pageSize: int = Query(100, ge=1, le=500),
+    sortBy: str = Query("balance", regex="^(balance|wallet)$")
 ) -> Dict:
-    balances_coll = app.mongodb["balances"]
+    balancesColl = app.mongodb["balances"]
 
-    min_val = min_balance if min_balance is not None else 0
-    max_val = max_balance if max_balance is not None else float('inf')
+    minVal = minBalance if minBalance is not None else 0
+    maxVal = maxBalance if maxBalance is not None else float('inf')
 
     pipeline = [
         {"$addFields": {
@@ -146,77 +146,77 @@ async def get_users_with_balances(
                 "$convert": {"input": "$account_balance", "to": "double", "onError": 0, "onNull": 0}
             }
         }},
-        {"$match": {"balance_float": {"$gte": min_val, "$lte": max_val}}},
+        {"$match": {"balance_float": {"$gte": minVal, "$lte": maxVal}}},
         {"$sort": {"balance_float": -1}},
-        {"$skip": (page - 1) * page_size},
-        {"$limit": page_size},
+        {"$skip": (page - 1) * pageSize},
+        {"$limit": pageSize},
         {"$project": {"_id": 0, "wallet": "$user", "currentBalance": "$balance_float"}}
     ]
 
-    count_pipeline = pipeline[:3]
-    count_result = await balances_coll.aggregate(count_pipeline + [{"$count": "total"}]).to_list(length=1)
-    total_count = count_result[0]["total"] if count_result else 0
-    results = await balances_coll.aggregate(pipeline).to_list(length=page_size)
+    countPipeline = pipeline[:3]
+    countResult = await balancesColl.aggregate(countPipeline + [{"$count": "total"}]).to_list(length=1)
+    totalCount = countResult[0]["total"] if countResult else 0
+    results = await balancesColl.aggregate(pipeline).to_list(length=pageSize)
 
     return {
         "data": results,
         "pagination": {
             "page": page,
-            "page_size": page_size,
-            "total_count": total_count,
-            "total_pages": (total_count + page_size - 1) // page_size
+            "page_size": pageSize,
+            "total_count": totalCount,
+            "total_pages": (totalCount + pageSize - 1) // pageSize
         }
     }
 
 
 @app.get("/api/users/profitable")
-async def get_profitable_traders(
+async def getProfitableTraders(
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=10, le=200),
-    sort_by: str = Query("pnl"),
-    sort_direction: str = Query("desc"),
-    min_winrate: float = Query(None),
-    max_drawdown: float = Query(None),
-    min_balance: float = Query(None),
-    max_balance: float = Query(None),
-    active_only: bool = Query(False),
-    is_bot: str = Query(None),
+    pageSize: int = Query(100, ge=10, le=200),
+    sortBy: str = Query("pnl"),
+    sortDirection: str = Query("desc"),
+    minWinrate: float = Query(None),
+    maxDrawdown: float = Query(None),
+    minBalance: float = Query(None),
+    maxBalance: float = Query(None),
+    activeOnly: bool = Query(False),
+    isBot: str = Query(None),
 ) -> Dict:
     coll = app.mongodb["profitability_metrics"]
 
     query = {"has_trading_activity": True}
 
-    if min_winrate is not None:
-        query["win_rate_percentage"] = {"$gte": min_winrate}
-    if max_drawdown is not None:
-        query["max_drawdown_percentage"] = {"$lte": max_drawdown}
-    if min_balance is not None:
-        query.setdefault("account_value", {})["$gte"] = min_balance
-    if max_balance is not None:
-        query.setdefault("account_value", {})["$lte"] = max_balance
-    if active_only:
+    if minWinrate is not None:
+        query["win_rate_percentage"] = {"$gte": minWinrate}
+    if maxDrawdown is not None:
+        query["max_drawdown_percentage"] = {"$lte": maxDrawdown}
+    if minBalance is not None:
+        query.setdefault("account_value", {})["$gte"] = minBalance
+    if maxBalance is not None:
+        query.setdefault("account_value", {})["$lte"] = maxBalance
+    if activeOnly:
         query["open_positions_count"] = {"$gt": 0}
 
-    if is_bot == "true":
+    if isBot == "true":
         query["is_likely_bot"] = True
-    elif is_bot == "false":
+    elif isBot == "false":
         query["is_likely_bot"] = {"$ne": True}
 
-    sort_field_map = {
+    sortFieldMap = {
         "pnl": "total_pnl_usdc",
         "balance": "account_value",
         "winrate": "win_rate_percentage",
         "drawdown": "max_drawdown_percentage",
         "openTrades": "open_positions_count",
     }
-    field = sort_field_map.get(sort_by, "total_pnl_usdc")
-    direction = -1 if sort_direction == "desc" else 1
+    field = sortFieldMap.get(sortBy, "total_pnl_usdc")
+    direction = -1 if sortDirection == "desc" else 1
 
-    total_count = await coll.count_documents(query)
-    skip = (page - 1) * page_size
+    totalCount = await coll.count_documents(query)
+    skip = (page - 1) * pageSize
 
-    cursor = coll.find(query, {"_id": 0}).sort(field, direction).skip(skip).limit(page_size)
-    docs = await cursor.to_list(length=page_size)
+    cursor = coll.find(query, {"_id": 0}).sort(field, direction).skip(skip).limit(pageSize)
+    docs = await cursor.to_list(length=pageSize)
 
     traders = []
     for doc in docs:
@@ -259,19 +259,19 @@ async def get_profitable_traders(
     return {
         "data": traders,
         "pagination": {
-            "total_count": total_count,
+            "total_count": totalCount,
             "page": page,
-            "page_size": page_size,
-            "has_more": (skip + len(traders)) < total_count,
+            "page_size": pageSize,
+            "has_more": (skip + len(traders)) < totalCount,
         }
     }
 
 
-@app.get("/api/users/trader/{wallet_address}")
-async def get_trader_details(wallet_address: str) -> Dict:
+@app.get("/api/users/trader/{walletAddress}")
+async def getTraderDetails(walletAddress: str) -> Dict:
     coll = app.mongodb["profitability_metrics"]
 
-    trader = await coll.find_one({"wallet_address": wallet_address}, {"_id": 0})
+    trader = await coll.find_one({"wallet_address": walletAddress}, {"_id": 0})
     if not trader:
         raise HTTPException(status_code=404, detail="Trader not found")
 
@@ -290,8 +290,8 @@ async def get_trader_details(wallet_address: str) -> Dict:
     return trader
 
 
-@app.get("/api/users/trader/{wallet_address}/live")
-async def get_trader_live_data(wallet_address: str) -> Dict:
+@app.get("/api/users/trader/{walletAddress}/live")
+async def getTraderLiveData(walletAddress: str) -> Dict:
     import asyncio
     from datetime import datetime
 
@@ -300,81 +300,81 @@ async def get_trader_live_data(wallet_address: str) -> Dict:
 
         # fire all 4 calls at once instead of waiting for each one.
         # cuts the response time from ~4x to ~1x the API latency
-        state_req = client.post(HYPERLIQUID_API_URL, json={"type": "clearinghouseState", "user": wallet_address})
-        portfolio_req = client.post(HYPERLIQUID_API_URL, json={"type": "portfolio", "user": wallet_address})
-        spot_req = client.post(HYPERLIQUID_API_URL, json={"type": "spotClearinghouseState", "user": wallet_address})
-        mids_req = client.post(HYPERLIQUID_API_URL, json={"type": "allMids"})
+        stateReq = client.post(HYPERLIQUID_API_URL, json={"type": "clearinghouseState", "user": walletAddress})
+        portfolioReq = client.post(HYPERLIQUID_API_URL, json={"type": "portfolio", "user": walletAddress})
+        spotReq = client.post(HYPERLIQUID_API_URL, json={"type": "spotClearinghouseState", "user": walletAddress})
+        midsReq = client.post(HYPERLIQUID_API_URL, json={"type": "allMids"})
 
-        state_resp, portfolio_resp, spot_resp, mids_resp = await asyncio.gather(
-            state_req, portfolio_req, spot_req, mids_req
+        stateResp, portfolioResp, spotResp, midsResp = await asyncio.gather(
+            stateReq, portfolioReq, spotReq, midsReq
         )
 
-        if state_resp.status_code != 200:
+        if stateResp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to fetch live data from Hyperliquid")
 
-        state = state_resp.json()
-        portfolio = portfolio_resp.json() if portfolio_resp.status_code == 200 else []
+        state = stateResp.json()
+        portfolio = portfolioResp.json() if portfolioResp.status_code == 200 else []
 
-        margin_summary = state.get('marginSummary', {})
-        perp_value = float(margin_summary.get('accountValue', 0))
+        marginSummary = state.get('marginSummary', {})
+        perpValue = float(marginSummary.get('accountValue', 0))
         withdrawable = float(state.get('withdrawable', 0))
 
         # calculate spot value from token balances * mid prices
-        spot_value = 0.0
-        if spot_resp.status_code == 200:
-            spot_state = spot_resp.json()
-            mids = mids_resp.json() if mids_resp.status_code == 200 else {}
-            for b in spot_state.get('balances', []):
+        spotValue = 0.0
+        if spotResp.status_code == 200:
+            spotState = spotResp.json()
+            mids = midsResp.json() if midsResp.status_code == 200 else {}
+            for b in spotState.get('balances', []):
                 coin = b.get('coin', '')
                 total = float(b.get('total', 0))
                 if coin == 'USDC':
-                    spot_value += total
+                    spotValue += total
                 elif coin in mids:
-                    spot_value += total * float(mids[coin])
+                    spotValue += total * float(mids[coin])
 
-        total_account_value = perp_value + spot_value
+        totalAccountValue = perpValue + spotValue
 
         # pnl from portfolio
-        all_time = next((p[1] for p in portfolio if p[0] == 'allTime'), None)
-        pnl_history = all_time.get('pnlHistory', []) if all_time else []
-        realized_pnl = float(pnl_history[-1][1]) if pnl_history else 0.0
-        total_volume = float(all_time.get('vlm', 0)) if all_time else 0.0
+        allTime = next((p[1] for p in portfolio if p[0] == 'allTime'), None)
+        pnlHistory = allTime.get('pnlHistory', []) if allTime else []
+        realizedPnl = float(pnlHistory[-1][1]) if pnlHistory else 0.0
+        totalVolume = float(allTime.get('vlm', 0)) if allTime else 0.0
 
         # live positions
-        unrealized_pnl = 0.0
-        open_positions = []
+        unrealizedPnl = 0.0
+        openPositions = []
         for pos in state.get('assetPositions', []):
-            pos_data = pos.get('position', {})
-            size = float(pos_data.get('szi', 0))
+            posData = pos.get('position', {})
+            size = float(posData.get('szi', 0))
             if size == 0:
                 continue
-            upnl = float(pos_data.get('unrealizedPnl', 0))
-            unrealized_pnl += upnl
-            open_positions.append({
-                "asset": pos_data.get('coin', 'UNKNOWN'),
+            upnl = float(posData.get('unrealizedPnl', 0))
+            unrealizedPnl += upnl
+            openPositions.append({
+                "asset": posData.get('coin', 'UNKNOWN'),
                 "direction": "LONG" if size > 0 else "SHORT",
                 "size": abs(size),
-                "entry_price": float(pos_data.get('entryPx', 0)),
+                "entry_price": float(posData.get('entryPx', 0)),
                 "unrealized_pnl": round(upnl, 2)
             })
 
-        total_pnl = realized_pnl + unrealized_pnl
-        initial_balance = total_account_value - total_pnl if total_pnl != 0 else total_account_value
-        profit_pct = (total_pnl / initial_balance * 100) if initial_balance > 0 else 0
+        totalPnl = realizedPnl + unrealizedPnl
+        initialBalance = totalAccountValue - totalPnl if totalPnl != 0 else totalAccountValue
+        profitPct = (totalPnl / initialBalance * 100) if initialBalance > 0 else 0
 
         return {
-            "wallet_address": wallet_address,
-            "account_value": round(total_account_value, 2),
-            "perp_account_value": round(perp_value, 2),
-            "spot_account_value": round(spot_value, 2),
+            "wallet_address": walletAddress,
+            "account_value": round(totalAccountValue, 2),
+            "perp_account_value": round(perpValue, 2),
+            "spot_account_value": round(spotValue, 2),
             "withdrawable_balance": round(withdrawable, 2),
-            "total_pnl": round(total_pnl, 2),
-            "realized_pnl": round(realized_pnl, 2),
-            "unrealized_pnl": round(unrealized_pnl, 2),
-            "profit_percentage": round(profit_pct, 2),
-            "total_volume_usdc": round(total_volume, 2),
-            "open_positions": open_positions,
-            "open_positions_count": len(open_positions),
+            "total_pnl": round(totalPnl, 2),
+            "realized_pnl": round(realizedPnl, 2),
+            "unrealized_pnl": round(unrealizedPnl, 2),
+            "profit_percentage": round(profitPct, 2),
+            "total_volume_usdc": round(totalVolume, 2),
+            "open_positions": openPositions,
+            "open_positions_count": len(openPositions),
             "last_updated": datetime.now().isoformat(),
             "data_source": "live"
         }
@@ -386,8 +386,8 @@ async def get_trader_live_data(wallet_address: str) -> Dict:
 # 60s cache because OI doesn't change that fast and the aggregation pipeline
 # is kinda expensive to run on every page load
 @app.get("/api/exchange-oi")
-async def get_exchange_oi():
-    cached = cache_get("exchange_oi", ttl=60)
+async def getExchangeOi():
+    cached = cacheGet("exchange_oi", ttl=60)
     if cached is not None:
         return cached
 
@@ -420,53 +420,53 @@ async def get_exchange_oi():
             "timestamp": doc.get("timestamp"),
         })
 
-    cache_set("exchange_oi", grouped)
+    cacheSet("exchange_oi", grouped)
     return grouped
 
 
 @app.get("/api/large-positions")
-async def get_large_positions(
-    min_notional_usd: Optional[float] = Query(10000, ge=0),
+async def getLargePositions(
+    minNotionalUsd: Optional[float] = Query(10000, ge=0),
     asset: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
-    sort_by: str = Query("notional_usd"),
-    sort_direction: str = Query("desc"),
+    sortBy: str = Query("notional_usd"),
+    sortDirection: str = Query("desc"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    pageSize: int = Query(50, ge=1, le=500),
 ):
     """
     Reads from the open_positions collection which OpenTrades.py keeps fresh.
     """
-    cache_key = f"large_pos:{min_notional_usd}:{asset}:{direction}:{sort_by}:{sort_direction}:{page}:{page_size}"
-    cached = cache_get(cache_key, ttl=30)
+    cacheKey = f"large_pos:{minNotionalUsd}:{asset}:{direction}:{sortBy}:{sortDirection}:{page}:{pageSize}"
+    cached = cacheGet(cacheKey, ttl=30)
     if cached is not None:
         return cached
 
     coll = app.mongodb["open_positions"]
 
     query = {}
-    if min_notional_usd:
-        query["notional_usd"] = {"$gte": min_notional_usd}
+    if minNotionalUsd:
+        query["notional_usd"] = {"$gte": minNotionalUsd}
     if asset:
         query["asset"] = asset.upper()
     if direction:
         query["direction"] = direction.upper()
 
-    sort_field_map = {
+    sortFieldMap = {
         "notional_usd": "notional_usd",
         "unrealized_pnl": "unrealized_pnl",
         "account_value": "account_value",
         "size": "size",
     }
-    field = sort_field_map.get(sort_by, "notional_usd")
-    mongo_dir = -1 if sort_direction == "desc" else 1
+    field = sortFieldMap.get(sortBy, "notional_usd")
+    mongoDir = -1 if sortDirection == "desc" else 1
 
-    total_count = await coll.count_documents(query)
+    totalCount = await coll.count_documents(query)
     unique_wallets = len(await coll.distinct("wallet_address", query))
-    skip = (page - 1) * page_size
+    skip = (page - 1) * pageSize
 
-    cursor = coll.find(query, {"_id": 0}).sort(field, mongo_dir).skip(skip).limit(page_size)
-    results = await cursor.to_list(length=page_size)
+    cursor = coll.find(query, {"_id": 0}).sort(field, mongoDir).skip(skip).limit(pageSize)
+    results = await cursor.to_list(length=pageSize)
 
     for r in results:
         if r.get("last_updated") and hasattr(r["last_updated"], "isoformat"):
@@ -475,24 +475,24 @@ async def get_large_positions(
     response = {
         "data": results,
         "pagination": {
-            "total_count": total_count,
+            "total_count": totalCount,
             "unique_wallets": unique_wallets,
             "page": page,
-            "page_size": page_size,
-            "has_more": (skip + len(results)) < total_count,
+            "page_size": pageSize,
+            "has_more": (skip + len(results)) < totalCount,
         }
     }
 
-    cache_set(cache_key, response)
+    cacheSet(cacheKey, response)
     return response
 
 
 @app.get("/api/asset-concentration")
-async def get_asset_concentration():
+async def getAssetConcentration():
     """
     Read asset concentration from the pre-computed asset_concentration collection.
     """
-    cached = cache_get("asset_concentration", ttl=30)
+    cached = cacheGet("asset_concentration", ttl=30)
     if cached is not None:
         return cached
 
@@ -504,7 +504,7 @@ async def get_asset_concentration():
         if r.get("last_updated") and hasattr(r["last_updated"], "isoformat"):
             r["last_updated"] = r["last_updated"].isoformat()
 
-    cache_set("asset_concentration", results)
+    cacheSet("asset_concentration", results)
     return results
 
 
@@ -514,13 +514,13 @@ class WatchlistItem(BaseModel):
     label: str = ""
 
 @app.get("/api/watchlist/{user_id}")
-async def get_watchlist(user_id: str):
+async def getWatchlist(user_id: str):
     col = app.mongodb["watchlists"]
     cursor = col.find({"user_id": user_id}, {"_id": 0})
     return [doc async for doc in cursor]
 
 @app.post("/api/watchlist")
-async def add_to_watchlist(item: WatchlistItem):
+async def addToWatchlist(item: WatchlistItem):
     col = app.mongodb["watchlists"]
     existing = await col.find_one({"user_id": item.user_id, "wallet_address": item.wallet_address})
     if existing:
@@ -529,7 +529,7 @@ async def add_to_watchlist(item: WatchlistItem):
     return {"message": "Added to watchlist"}
 
 @app.delete("/api/watchlist/{user_id}/{wallet_address}")
-async def remove_from_watchlist(user_id: str, wallet_address: str):
+async def removeFromWatchlist(user_id: str, wallet_address: str):
     col = app.mongodb["watchlists"]
     result = await col.delete_one({"user_id": user_id, "wallet_address": wallet_address})
     if result.deleted_count == 0:
@@ -537,9 +537,9 @@ async def remove_from_watchlist(user_id: str, wallet_address: str):
     return {"message": "Removed from watchlist"}
 
 @app.post("/api/users/telegram")
-async def save_telegram_id(data: dict):
-    users_col = app.mongodb["users"]
-    await users_col.update_one(
+async def saveTelegramId(data: dict):
+    usersCol = app.mongodb["users"]
+    await usersCol.update_one(
         {"user_id": data["user_id"]},
         {"$set": {"user_id": data["user_id"], "telegram_id": data["telegram_id"]}},
         upsert=True
