@@ -16,15 +16,15 @@ MONGO_URI = os.getenv("MONGO_URI")
 THRESHOLD = 1_000_000.0
 
 
-async def extract_millionaires():
+async def extractMillionaires():
     client = AsyncIOMotorClient(MONGO_URI)
     db     = client["hyperliquid"]
 
-    profitability_coll = db["profitability_metrics"]
-    millionaires_coll  = db["millionaires"]
+    profitabilityColl = db["profitability_metrics"]
+    millionairesColl  = db["millionaires"]
 
     # Fetch all wallets above the threshold that have trading activity
-    cursor = profitability_coll.find(
+    cursor = profitabilityColl.find(
         {
             "account_value":        {"$gte": THRESHOLD},
             "has_trading_activity": True,
@@ -50,20 +50,20 @@ async def extract_millionaires():
     skipped  = 0
 
     for doc in docs:
-        wallet_address = doc.get("wallet_address")
-        account_value  = doc.get("account_value", 0)
+        walletAddress = doc.get("wallet_address")
+        accountValue  = doc.get("account_value", 0)
 
-        if not wallet_address:
+        if not walletAddress:
             skipped += 1
             continue
 
         # Upsert — if wallet already exists update balance, else insert
-        result = await millionaires_coll.update_one(
-            {"wallet": wallet_address},
+        result = await millionairesColl.update_one(
+            {"wallet": walletAddress},
             {
                 "$set": {
-                    "wallet":       wallet_address,
-                    "balance":      account_value,
+                    "wallet":       walletAddress,
+                    "balance":      accountValue,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                 },
                 "$setOnInsert": {
@@ -81,12 +81,12 @@ async def extract_millionaires():
             skipped += 1
 
     print(f"Done — inserted: {inserted} | updated: {updated} | skipped: {skipped}")
-    print(f"Total in millionaires collection: {await millionaires_coll.count_documents({})}")
+    print(f"Total in millionaires collection: {await millionairesColl.count_documents({})}")
 
     client.close()
 
 
-async def remove_below_threshold():
+async def removeBelowThreshold():
     """
     Optional cleanup — removes wallets that have dropped below the threshold.
     Call this if you want the collection to stay current.
@@ -94,22 +94,22 @@ async def remove_below_threshold():
     client = AsyncIOMotorClient(MONGO_URI)
     db     = client["hyperliquid"]
 
-    profitability_coll = db["profitability_metrics"]
-    millionaires_coll  = db["millionaires"]
+    profitabilityColl = db["profitability_metrics"]
+    millionairesColl  = db["millionaires"]
 
     # Get all wallets currently in millionaires
-    existing = await millionaires_coll.find({}, {"_id": 0, "wallet": 1}).to_list(None)
-    existing_wallets = [d["wallet"] for d in existing if "wallet" in d]
+    existing = await millionairesColl.find({}, {"_id": 0, "wallet": 1}).to_list(None)
+    existingWallets = [d["wallet"] for d in existing if "wallet" in d]
 
     removed = 0
-    for wallet in existing_wallets:
+    for wallet in existingWallets:
         # Check if they still qualify
-        doc = await profitability_coll.find_one(
+        doc = await profitabilityColl.find_one(
             {"wallet_address": wallet},
             {"account_value": 1}
         )
         if not doc or doc.get("account_value", 0) < THRESHOLD:
-            await millionaires_coll.delete_one({"wallet": wallet})
+            await millionairesColl.delete_one({"wallet": wallet})
             print(f"Removed {wallet} (balance dropped below threshold)")
             removed += 1
 
@@ -122,10 +122,10 @@ async def main():
     print(f"Threshold: ${THRESHOLD:,.0f}")
     print("-" * 50)
 
-    await extract_millionaires()
+    await extractMillionaires()
 
     # Uncomment the line below to also remove wallets that dropped below threshold
-    # await remove_below_threshold()
+    # await removeBelowThreshold()
 
 
 if __name__ == "__main__":

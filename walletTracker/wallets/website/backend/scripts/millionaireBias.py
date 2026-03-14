@@ -19,7 +19,7 @@ PARALLEL               = 10
 RATE_LIMIT_DELAY       = 0.10
 
 
-async def fetch_millionaires_wallets():
+async def fetchMillionairesWallets():
     client = AsyncIOMotorClient(MONGO_URI)
     db     = client["hyperliquid"]
     coll   = db["millionaires"]
@@ -27,7 +27,7 @@ async def fetch_millionaires_wallets():
     return [d["wallet"] for d in docs if "wallet" in d]
 
 
-async def fetch_positions(session, wallet):
+async def fetchPositions(session, wallet):
     for attempt in range(MAX_RETRIES):
         try:
             async with session.post(
@@ -45,20 +45,20 @@ async def fetch_positions(session, wallet):
         except Exception as e:
             print(f"[{wallet}] Exception: {e}")
 
-        wait_time = 2 ** attempt
-        print(f"[{wallet}] Retry {attempt + 1}/{MAX_RETRIES} in {wait_time}s...")
-        await asyncio.sleep(wait_time)
+        waitTime = 2 ** attempt
+        print(f"[{wallet}] Retry {attempt + 1}/{MAX_RETRIES} in {waitTime}s...")
+        await asyncio.sleep(waitTime)
 
     print(f"[{wallet}] Failed after {MAX_RETRIES} attempts.")
     return []
 
 
-async def fetch_all_positions(wallets, session, parallel=PARALLEL):
+async def fetchAllPositions(wallets, session, parallel=PARALLEL):
     sema = asyncio.Semaphore(parallel)
 
     async def worker(wallet):
         async with sema:
-            positions = await fetch_positions(session, wallet)
+            positions = await fetchPositions(session, wallet)
             return wallet, positions
 
     tasks   = [worker(w) for w in wallets]
@@ -66,17 +66,17 @@ async def fetch_all_positions(wallets, session, parallel=PARALLEL):
     return dict(results)
 
 
-def summarize_bias(wallet_positions):
-    bias_qty   = {coin: Counter() for coin in TARGET_COINS}
-    bias_val   = {coin: Counter() for coin in TARGET_COINS}
-    per_wallet = {}
+def summarizeBias(walletPositions):
+    biasQty   = {coin: Counter() for coin in TARGET_COINS}
+    biasVal   = {coin: Counter() for coin in TARGET_COINS}
+    perWallet = {}
 
-    for wallet, positions in wallet_positions.items():
-        w_qty = {coin: Counter() for coin in TARGET_COINS}
-        w_val = {coin: Counter() for coin in TARGET_COINS}
+    for wallet, positions in walletPositions.items():
+        wQty = {coin: Counter() for coin in TARGET_COINS}
+        wVal = {coin: Counter() for coin in TARGET_COINS}
 
-        for pos_data in positions:
-            pos  = pos_data.get("position", {})
+        for posData in positions:
+            pos  = posData.get("position", {})
             coin = pos.get("coin")
             szi  = float(pos.get("szi", 0))
             val  = float(pos.get("positionValue", 0))
@@ -85,78 +85,78 @@ def summarize_bias(wallet_positions):
                 continue
 
             side = "B" if szi > 0 else "A"
-            bias_qty[coin][side] += abs(szi)
-            bias_val[coin][side] += val
-            w_qty[coin][side]    += abs(szi)
-            w_val[coin][side]    += val
+            biasQty[coin][side] += abs(szi)
+            biasVal[coin][side] += val
+            wQty[coin][side]    += abs(szi)
+            wVal[coin][side]    += val
 
-        per_wallet[wallet] = {
+        perWallet[wallet] = {
             coin: {
-                "long_sz":  w_qty[coin].get("B", 0.0),
-                "short_sz": w_qty[coin].get("A", 0.0),
-                "long":     w_val[coin].get("B", 0.0),
-                "short":    w_val[coin].get("A", 0.0),
+                "long_sz":  wQty[coin].get("B", 0.0),
+                "short_sz": wQty[coin].get("A", 0.0),
+                "long":     wVal[coin].get("B", 0.0),
+                "short":    wVal[coin].get("A", 0.0),
             }
             for coin in TARGET_COINS
         }
 
     aggregate = {}
     for coin in TARGET_COINS:
-        long_v  = bias_val[coin].get("B", 0.0)
-        short_v = bias_val[coin].get("A", 0.0)
-        total_v = long_v + short_v
+        longV  = biasVal[coin].get("B", 0.0)
+        shortV = biasVal[coin].get("A", 0.0)
+        totalV = longV + shortV
 
-        long_pct  = (long_v  / total_v * 100) if total_v > 0 else 0
-        short_pct = (short_v / total_v * 100) if total_v > 0 else 0
+        longPct  = (longV  / totalV * 100) if totalV > 0 else 0
+        shortPct = (shortV / totalV * 100) if totalV > 0 else 0
         direction = (
-            "Long"    if long_v > short_v else
-            "Short"   if short_v > long_v else
+            "Long"    if longV > shortV else
+            "Short"   if shortV > longV else
             "Neutral"
         )
 
-        long_wallets  = sum(1 for w in per_wallet.values() if w[coin]["long"]  > 0)
-        short_wallets = sum(1 for w in per_wallet.values() if w[coin]["short"] > 0)
-        total_wallets = long_wallets + short_wallets
+        longWallets  = sum(1 for w in perWallet.values() if w[coin]["long"]  > 0)
+        shortWallets = sum(1 for w in perWallet.values() if w[coin]["short"] > 0)
+        totalWallets = longWallets + shortWallets
 
         aggregate[coin] = {
-            "long":          long_v,
-            "short":         short_v,
-            "long_pct":      long_pct,
-            "short_pct":     short_pct,
+            "long":          longV,
+            "short":         shortV,
+            "long_pct":      longPct,
+            "short_pct":     shortPct,
             "direction":     direction,
-            "long_wallets":  long_wallets,
-            "short_wallets": short_wallets,
-            "total_wallets": total_wallets,
+            "long_wallets":  longWallets,
+            "short_wallets": shortWallets,
+            "total_wallets": totalWallets,
         }
 
     return {
         "aggregate": aggregate,
-        "per_wallet": per_wallet,
+        "per_wallet": perWallet,
         "timestamp":  datetime.now(timezone.utc).isoformat()
     }
 
 
-async def save_bias_to_mongo(bias_summary):
+async def saveBiasToMongo(biasSummary):
     client = AsyncIOMotorClient(MONGO_URI)
     db     = client["hyperliquid"]
     coll   = db["bias_summaries"]
-    await coll.insert_one(bias_summary)
+    await coll.insert_one(biasSummary)
 
 
 async def main():
     while True:
         try:
             print("Fetching latest wallet positions and computing bias summary...")
-            wallets = await fetch_millionaires_wallets()
+            wallets = await fetchMillionairesWallets()
 
             async with aiohttp.ClientSession() as session:
-                wallet_positions = await fetch_all_positions(wallets, session, parallel=PARALLEL)
+                walletPositions = await fetchAllPositions(wallets, session, parallel=PARALLEL)
 
-            bias_summary = summarize_bias(wallet_positions)
-            await save_bias_to_mongo(bias_summary)
+            biasSummary = summarizeBias(walletPositions)
+            await saveBiasToMongo(biasSummary)
 
-            print(f"Bias summary saved at {bias_summary['timestamp']}")
-            for coin, stats in bias_summary["aggregate"].items():
+            print(f"Bias summary saved at {biasSummary['timestamp']}")
+            for coin, stats in biasSummary["aggregate"].items():
                 print(
                     f"{coin}: {stats['direction']} | "
                     f"Long: ${stats['long']:.2f} ({stats['long_pct']:.1f}%) "

@@ -26,12 +26,12 @@ logger = logging.getLogger("large_positions")
 class LargeTradesFinder:
 
 
-    def __init__(self, mongo_uri):
-        self.client = MongoClient(mongo_uri)
+    def __init__(self, mongoUri):
+        self.client = MongoClient(mongoUri)
         self.db = self.client['hyperliquid']
-        self.setup_indexes()
+        self.setupIndexes()
 
-    def setup_indexes(self):
+    def setupIndexes(self):
         # unique key per position: wallet + asset + direction
         self.db["open_positions"].create_index(
             [("wallet_address", 1), ("asset", 1), ("direction", 1)],
@@ -46,13 +46,13 @@ class LargeTradesFinder:
         self.db["asset_concentration"].create_index([("total_notional", -1)])
         logger.info("indexes ready")
 
-    def find_large_positions(self, min_notional_usd=10000, min_unrealized_pnl=None, asset=None):
+    def findLargePositions(self, minNotionalUsd=10000, minUnrealizedPnl=None, asset=None):
         """
         Find users with large open positions.
 
         Args:
-            min_notional_usd: Minimum position size in USD (entry_price * size)
-            min_unrealized_pnl: Minimum unrealized PnL (can be negative to find big losses)
+            minNotionalUsd: Minimum position size in USD (entry_price * size)
+            minUnrealizedPnl: Minimum unrealized PnL (can be negative to find big losses)
             asset: Filter by specific asset (e.g., "BTC", "ETH")
 
         Returns:
@@ -76,19 +76,19 @@ class LargeTradesFinder:
         ]
 
         # Build match conditions for the position itself
-        position_match = {}
+        positionMatch = {}
 
-        if min_notional_usd:
-            position_match["open_positions.notional_usd"] = {"$gte": min_notional_usd}
+        if minNotionalUsd:
+            positionMatch["open_positions.notional_usd"] = {"$gte": minNotionalUsd}
 
-        if min_unrealized_pnl is not None:
-            position_match["open_positions.unrealized_pnl"] = {"$gte": min_unrealized_pnl}
+        if minUnrealizedPnl is not None:
+            positionMatch["open_positions.unrealized_pnl"] = {"$gte": minUnrealizedPnl}
 
         if asset:
-            position_match["open_positions.asset"] = asset.upper()
+            positionMatch["open_positions.asset"] = asset.upper()
 
-        if position_match:
-            pipeline.append({"$match": position_match})
+        if positionMatch:
+            pipeline.append({"$match": positionMatch})
 
         # Sort by notional value descending
         pipeline.append({"$sort": {"open_positions.notional_usd": -1}})
@@ -110,7 +110,7 @@ class LargeTradesFinder:
         results = list(self.db.profitability_metrics.aggregate(pipeline))
         return results
 
-    def save_positions(self, positions):
+    def savePositions(self, positions):
         """
         Upsert positions into the open_positions collection.
         Key = wallet_address + asset + direction so each position is one document.
@@ -121,7 +121,7 @@ class LargeTradesFinder:
 
         # build bulk upserts
         ops = []
-        seen_keys = set()
+        seenKeys = set()
         for p in positions:
             pos = p['position']
             key = {
@@ -129,7 +129,7 @@ class LargeTradesFinder:
                 "asset": pos['asset'],
                 "direction": pos['direction'],
             }
-            seen_keys.add((p['wallet_address'], pos['asset'], pos['direction']))
+            seenKeys.add((p['wallet_address'], pos['asset'], pos['direction']))
 
             ops.append(UpdateOne(
                 key,
@@ -154,18 +154,18 @@ class LargeTradesFinder:
                         f"{result.modified_count} updated")
 
         # remove positions that no longer qualify (closed or below threshold)
-        all_docs = coll.find({}, {"wallet_address": 1, "asset": 1, "direction": 1})
-        stale_ids = []
-        for doc in all_docs:
+        allDocs = coll.find({}, {"wallet_address": 1, "asset": 1, "direction": 1})
+        staleIds = []
+        for doc in allDocs:
             k = (doc['wallet_address'], doc['asset'], doc['direction'])
-            if k not in seen_keys:
-                stale_ids.append(doc['_id'])
+            if k not in seenKeys:
+                staleIds.append(doc['_id'])
 
-        if stale_ids:
-            coll.delete_many({"_id": {"$in": stale_ids}})
-            logger.info(f"removed {len(stale_ids)} closed/stale positions")
+        if staleIds:
+            coll.delete_many({"_id": {"$in": staleIds}})
+            logger.info(f"removed {len(staleIds)} closed/stale positions")
 
-    def save_concentration(self, min_positions=3):
+    def saveConcentration(self, minPositions=3):
         """
         Compute asset concentration and upsert into asset_concentration collection.
         """
@@ -192,7 +192,7 @@ class LargeTradesFinder:
                     "$sum": {"$cond": [{"$eq": ["$open_positions.direction", "SHORT"]}, 1, 0]}
                 }
             }},
-            {"$match": {"total_positions": {"$gte": min_positions}}},
+            {"$match": {"total_positions": {"$gte": minPositions}}},
             {"$sort": {"total_notional": -1}}
         ]
 
@@ -200,11 +200,11 @@ class LargeTradesFinder:
         now = datetime.now()
         coll = self.db["asset_concentration"]
 
-        seen_assets = set()
+        seenAssets = set()
         ops = []
         for r in results:
             asset = r['_id']
-            seen_assets.add(asset)
+            seenAssets.add(asset)
             ops.append(UpdateOne(
                 {"asset": asset},
                 {"$set": {
@@ -225,11 +225,11 @@ class LargeTradesFinder:
                         f"{res.modified_count} updated")
 
         # remove assets that dropped below threshold
-        coll.delete_many({"asset": {"$nin": list(seen_assets)}})
+        coll.delete_many({"asset": {"$nin": list(seenAssets)}})
 
         return results
 
-    def print_results(self, positions):
+    def printResults(self, positions):
         """Pretty print the results"""
         if not positions:
             print("\nNo positions found matching the criteria.")
@@ -245,42 +245,42 @@ class LargeTradesFinder:
 
             # Color code based on PnL
             pnl = pos['unrealized_pnl']
-            pnl_str = f"${pnl:,.2f}"
+            pnlStr = f"${pnl:,.2f}"
             if pnl > 0:
-                pnl_indicator = "[+]"
+                pnlIndicator = "[+]"
             elif pnl < 0:
-                pnl_indicator = "[-]"
+                pnlIndicator = "[-]"
             else:
-                pnl_indicator = "[=]"
+                pnlIndicator = "[=]"
 
             print(f"#{i:3d} | {pos['asset']:8s} | {pos['direction']:5s} | ${notional:15,.2f}")
             print(f"      Wallet: {p['wallet_address']}")
             print(f"      Position: {pos['size']:,.4f} @ ${pos['entry_price']:,.2f}")
-            print(f"      Unrealized PnL: {pnl_indicator} {pnl_str}")
+            print(f"      Unrealized PnL: {pnlIndicator} {pnlStr}")
             print(f"      Account Value: ${p.get('account_value', 0):,.2f} | "
                   f"Win Rate: {p.get('win_rate_percentage', 0):.1f}% | "
                   f"Trades: {p.get('trade_count', 0):,}")
 
-            last_updated = p.get('last_updated')
-            if last_updated:
-                if isinstance(last_updated, str):
-                    print(f"      Last Updated: {last_updated}")
+            lastUpdated = p.get('last_updated')
+            if lastUpdated:
+                if isinstance(lastUpdated, str):
+                    print(f"      Last Updated: {lastUpdated}")
                 else:
-                    print(f"      Last Updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"      Last Updated: {lastUpdated.strftime('%Y-%m-%d %H:%M:%S')}")
 
             print("-" * 120)
 
         # Summary stats
-        total_notional = sum(p['position']['notional_usd'] for p in positions)
-        total_upnl = sum(p['position']['unrealized_pnl'] for p in positions)
+        totalNotional = sum(p['position']['notional_usd'] for p in positions)
+        totalUpnl = sum(p['position']['unrealized_pnl'] for p in positions)
 
         print(f"\nSummary:")
         print(f"  Total Positions Shown: {len(positions)}")
-        print(f"  Total Notional: ${total_notional:,.2f}")
-        print(f"  Total Unrealized PnL: ${total_upnl:,.2f}")
+        print(f"  Total Notional: ${totalNotional:,.2f}")
+        print(f"  Total Unrealized PnL: ${totalUpnl:,.2f}")
         print("=" * 120)
 
-    def print_concentration(self, results):
+    def printConcentration(self, results):
         """
         Print asset concentration from pre-computed results.
         """
@@ -300,9 +300,9 @@ class LargeTradesFinder:
             upnl = r['total_unrealized_pnl']
             longs = r['longs']
             shorts = r['shorts']
-            ls_ratio = f"{longs}/{shorts}"
+            lsRatio = f"{longs}/{shorts}"
 
-            print(f"{asset:<10} {positions:>10,} ${notional:>18,.2f} ${upnl:>18,.2f}  {ls_ratio}")
+            print(f"{asset:<10} {positions:>10,} ${notional:>18,.2f} ${upnl:>18,.2f}  {lsRatio}")
 
         print("=" * 100)
 
@@ -311,69 +311,69 @@ class LargeTradesFinder:
 
 
 def main():
-    min_notional = 10000
+    minNotional = 10000
     asset = None
     top = 20
     interval = 60
 
-    mongo_uri = os.getenv('MONGO_URI')
-    if not mongo_uri:
+    mongoUri = os.getenv('MONGO_URI')
+    if not mongoUri:
         print("Error: MONGO_URI not found in environment variables")
         return
 
-    finder = LargeTradesFinder(mongo_uri)
+    finder = LargeTradesFinder(mongoUri)
 
     # track previous cycle to detect changes
-    prev_snapshot = set()
+    prevSnapshot = set()
 
     try:
         cycle = 0
         while True:
             cycle += 1
 
-            positions = finder.find_large_positions(
-                min_notional_usd=min_notional,
+            positions = finder.findLargePositions(
+                minNotionalUsd=minNotional,
                 asset=asset,
             )
 
             # save ALL qualifying positions to MongoDB (upsert)
-            finder.save_positions(positions)
-            concentration = finder.save_concentration(min_positions=3)
+            finder.savePositions(positions)
+            concentration = finder.saveConcentration(minPositions=3)
 
             # build a snapshot of the current top positions so we can detect changes
-            top_positions = positions[:top]
-            current_snapshot = set()
-            for p in top_positions:
+            topPositions = positions[:top]
+            currentSnapshot = set()
+            for p in topPositions:
                 pos = p['position']
-                current_snapshot.add((p['wallet_address'], pos['asset'], pos['direction']))
+                currentSnapshot.add((p['wallet_address'], pos['asset'], pos['direction']))
 
             # on first run always print, after that only print when something changed
-            new_entries = current_snapshot - prev_snapshot
-            closed_entries = prev_snapshot - current_snapshot
-            changed = cycle == 1 or bool(new_entries) or bool(closed_entries)
+            newEntries = currentSnapshot - prevSnapshot
+            closedEntries = prevSnapshot - currentSnapshot
+            changed = cycle == 1 or bool(newEntries) or bool(closedEntries)
 
             if changed:
                 os.system('cls' if os.name == 'nt' else 'clear')
 
                 logger.info(f"Cycle #{cycle}  |  "
-                      f"Min notional: ${min_notional:,.0f}  |  "
+                      f"Min notional: ${minNotional:,.0f}  |  "
                       f"Asset: {asset or 'ALL'}  |  "
                       f"Refresh: {interval}s  |  "
                       f"Total qualifying: {len(positions)}")
 
-                if new_entries and cycle > 1:
-                    logger.info(f"{len(new_entries)} NEW position(s) entered the top {top}")
-                if closed_entries and cycle > 1:
-                    logger.info(f"{len(closed_entries)} position(s) dropped out")
+                if newEntries and cycle > 1:
+                    logger.info(f"{len(newEntries)} NEW position(s) entered the top {top}")
+                if closedEntries and cycle > 1:
+                    logger.info(f"{len(closedEntries)} position(s) dropped out")
 
-                finder.print_results(top_positions)
-                finder.print_concentration(concentration)
+                finder.printResults(topPositions)
+                finder.printConcentration(concentration)
             else:
                 logger.info(f"Cycle #{cycle}  |  No changes  |  "
-                      f"{len(top_positions)} positions tracked  |  "
+                      f"{len(topPositions)} positions tracked  |  "
                       f"{len(positions)} saved to DB")
 
-            prev_snapshot = current_snapshot
+            prevSnapshot = currentSnapshot
             time.sleep(interval)
 
     except KeyboardInterrupt:

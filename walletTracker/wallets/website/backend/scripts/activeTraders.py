@@ -23,9 +23,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger("ExplorerTxTracker")
 
 # Insert user if new (MongoDB does the uniqueness check)
-async def add_user(users_collection, user):
+async def addUser(usersCollection, user):
     try:
-        res = await users_collection.update_one(
+        res = await usersCollection.update_one(
             {"user": user},
             {"$setOnInsert": {"user": user}},
             upsert=True
@@ -36,10 +36,10 @@ async def add_user(users_collection, user):
         logger.error(f"Error inserting user {user}: {e}")
 
 # Persistent websocket watcher
-async def websocket_watcher():
+async def websocketWatcher():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client["hyperliquid"]
-    users_collection = db["users"]
+    usersCollection = db["users"]
 
     while True:
         try:
@@ -59,25 +59,25 @@ async def websocket_watcher():
                         for tx in data:
                             user = tx.get("user") or tx.get("wallet")
                             if user:
-                                await add_user(users_collection, user)
+                                await addUser(usersCollection, user)
         except Exception as e:
             logger.error(f"WebSocket error: {e} - reconnecting in 5s...")
             await asyncio.sleep(5)
 
 # Monitoring/analytics: records user count every day
-async def daily_monitor():
+async def dailyMonitor():
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
     db = client["hyperliquid"]
-    users_collection = db["users"]
-    monitor_collection = db["user_monitor"]
+    usersCollection = db["users"]
+    monitorCollection = db["user_monitor"]
 
     while True:
         try:
             ts = datetime.now(timezone.utc).isoformat()
-            user_count = await users_collection.count_documents({})
-            doc = {"timestamp": ts, "user_count": user_count}
-            await monitor_collection.insert_one(doc)
-            logger.info(f"\033[94mMONITOR: Saved {user_count} users at {ts}\033[0m")
+            userCount = await usersCollection.count_documents({})
+            doc = {"timestamp": ts, "user_count": userCount}
+            await monitorCollection.insert_one(doc)
+            logger.info(f"\033[94mMONITOR: Saved {userCount} users at {ts}\033[0m")
         except Exception as e:
             logger.error(f"Monitor error: {e}")
         await asyncio.sleep(24 * 60 * 60)  # 24 hours
@@ -85,8 +85,8 @@ async def daily_monitor():
 # Entry: run websocket watcher and monitor concurrently
 async def main():
     await asyncio.gather(
-        websocket_watcher(),
-        daily_monitor()
+        websocketWatcher(),
+        dailyMonitor()
     )
 
 if __name__ == '__main__':
