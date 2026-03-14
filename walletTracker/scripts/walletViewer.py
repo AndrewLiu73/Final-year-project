@@ -12,16 +12,16 @@ ENV_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_PATH)
 
 
-def plot_pnl_from_trades(wallet_address):
+def plotPnlFromTrades(walletAddress):
     """Plot PnL history directly from trade fills via API"""
 
-    print(f"\nFetching trade history for {wallet_address}...")
+    print(f"\nFetching trade history for {walletAddress}...")
 
     try:
         # Fetch fills from Hyperliquid API
         response = requests.post(
             "https://api.hyperliquid.xyz/info",
-            json={"type": "userFills", "user": wallet_address},
+            json={"type": "userFills", "user": walletAddress},
             timeout=15
         )
 
@@ -42,29 +42,29 @@ def plot_pnl_from_trades(wallet_address):
         return
 
     # Sort fills by timestamp
-    sorted_fills = sorted(fills, key=lambda x: x.get('time', 0))
+    sortedFills = sorted(fills, key=lambda x: x.get('time', 0))
 
     # Calculate cumulative PnL
     dates = []
-    cumulative_pnl = []
-    running_total = 0
+    cumulativePnl = []
+    runningTotal = 0
 
-    for fill in sorted_fills:
+    for fill in sortedFills:
         timestamp = fill.get('time', 0)
-        closed_pnl = float(fill.get('closedPnl', 0))
+        closedPnl = float(fill.get('closedPnl', 0))
 
         # Convert timestamp (milliseconds) to datetime
         date = datetime.fromtimestamp(timestamp / 1000)
-        running_total += closed_pnl
+        runningTotal += closedPnl
 
         dates.append(date)
-        cumulative_pnl.append(running_total)
+        cumulativePnl.append(runningTotal)
 
     # Calculate drawdown
-    peak = cumulative_pnl[0]
+    peak = cumulativePnl[0]
     drawdown = []
 
-    for pnl in cumulative_pnl:
+    for pnl in cumulativePnl:
         if pnl > peak:
             peak = pnl
 
@@ -76,17 +76,17 @@ def plot_pnl_from_trades(wallet_address):
 
     # Create figure with subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
-    fig.suptitle(f'Trading Performance - {wallet_address[:10]}...{wallet_address[-8:]}',
+    fig.suptitle(f'Trading Performance - {walletAddress[:10]}...{walletAddress[-8:]}',
                  fontsize=16, fontweight='bold')
 
     # Plot 1: Cumulative PnL
-    ax1.plot(dates, cumulative_pnl, linewidth=2, color='#2E86AB')
+    ax1.plot(dates, cumulativePnl, linewidth=2, color='#2E86AB')
     ax1.axhline(y=0, color='gray', linestyle='-', linewidth=0.5, alpha=0.5)
-    ax1.fill_between(dates, cumulative_pnl, 0,
-                     where=[p >= 0 for p in cumulative_pnl],
+    ax1.fill_between(dates, cumulativePnl, 0,
+                     where=[p >= 0 for p in cumulativePnl],
                      alpha=0.2, color='green', label='Profit')
-    ax1.fill_between(dates, cumulative_pnl, 0,
-                     where=[p < 0 for p in cumulative_pnl],
+    ax1.fill_between(dates, cumulativePnl, 0,
+                     where=[p < 0 for p in cumulativePnl],
                      alpha=0.2, color='red', label='Loss')
 
     ax1.set_xlabel('Date', fontsize=12)
@@ -98,14 +98,14 @@ def plot_pnl_from_trades(wallet_address):
     plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Annotations
-    if len(cumulative_pnl) > 0:
-        ax1.annotate(f'Start: ${cumulative_pnl[0]:,.0f}',
-                     xy=(dates[0], cumulative_pnl[0]),
+    if len(cumulativePnl) > 0:
+        ax1.annotate(f'Start: ${cumulativePnl[0]:,.0f}',
+                     xy=(dates[0], cumulativePnl[0]),
                      xytext=(10, 10), textcoords='offset points',
                      fontsize=9, bbox=dict(boxstyle='round,pad=0.3',
                                            facecolor='yellow', alpha=0.5))
-        ax1.annotate(f'Current: ${cumulative_pnl[-1]:,.0f}',
-                     xy=(dates[-1], cumulative_pnl[-1]),
+        ax1.annotate(f'Current: ${cumulativePnl[-1]:,.0f}',
+                     xy=(dates[-1], cumulativePnl[-1]),
                      xytext=(-80, -20), textcoords='offset points',
                      fontsize=9, bbox=dict(boxstyle='round,pad=0.3',
                                            facecolor='yellow', alpha=0.5))
@@ -123,34 +123,34 @@ def plot_pnl_from_trades(wallet_address):
     plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
     # Calculate statistics
-    total_pnl = cumulative_pnl[-1] if cumulative_pnl else 0
-    max_pnl = max(cumulative_pnl) if cumulative_pnl else 0
-    min_pnl = min(cumulative_pnl) if cumulative_pnl else 0
-    max_dd = max(drawdown) if drawdown else 0
+    totalPnl = cumulativePnl[-1] if cumulativePnl else 0
+    maxPnl = max(cumulativePnl) if cumulativePnl else 0
+    minPnl = min(cumulativePnl) if cumulativePnl else 0
+    maxDd = max(drawdown) if drawdown else 0
 
-    winning_trades = sum(1 for f in sorted_fills if float(f.get('closedPnl', 0)) > 0)
-    losing_trades = sum(1 for f in sorted_fills if float(f.get('closedPnl', 0)) < 0)
-    win_rate = (winning_trades / len(sorted_fills) * 100) if len(sorted_fills) > 0 else 0
+    winningTrades = sum(1 for f in sortedFills if float(f.get('closedPnl', 0)) > 0)
+    losingTrades = sum(1 for f in sortedFills if float(f.get('closedPnl', 0)) < 0)
+    winRate = (winningTrades / len(sortedFills) * 100) if len(sortedFills) > 0 else 0
 
-    period_days = (dates[-1] - dates[0]).days if len(dates) > 1 else 0
+    periodDays = (dates[-1] - dates[0]).days if len(dates) > 1 else 0
 
     # Statistics box
-    stats_text = f'Total Trades: {len(sorted_fills):,}\n'
-    stats_text += f'Win Rate: {win_rate:.1f}%\n'
-    stats_text += f'Total PnL: ${total_pnl:,.2f}\n'
-    stats_text += f'Max PnL: ${max_pnl:,.2f}\n'
-    stats_text += f'Min PnL: ${min_pnl:,.2f}\n'
-    stats_text += f'Max Drawdown: {max_dd:.2f}%\n'
-    stats_text += f'Period: {period_days} days'
+    statsText = f'Total Trades: {len(sortedFills):,}\n'
+    statsText += f'Win Rate: {winRate:.1f}%\n'
+    statsText += f'Total PnL: ${totalPnl:,.2f}\n'
+    statsText += f'Max PnL: ${maxPnl:,.2f}\n'
+    statsText += f'Min PnL: ${minPnl:,.2f}\n'
+    statsText += f'Max Drawdown: {maxDd:.2f}%\n'
+    statsText += f'Period: {periodDays} days'
 
-    ax2.text(0.02, 0.02, stats_text, transform=ax2.transAxes,
+    ax2.text(0.02, 0.02, statsText, transform=ax2.transAxes,
              fontsize=10, verticalalignment='bottom',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
     plt.tight_layout()
 
     # Save chart
-    filename = f"pnl_chart_{wallet_address[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    filename = f"pnl_chart_{walletAddress[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     print(f"Chart saved as: {filename}")
 
@@ -169,7 +169,7 @@ def main():
         print("Invalid wallet address.")
         return
 
-    plot_pnl_from_trades(wallet)
+    plotPnlFromTrades(wallet)
 
 
 if __name__ == "__main__":

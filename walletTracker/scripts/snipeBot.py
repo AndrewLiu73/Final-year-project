@@ -30,169 +30,169 @@ accountAPI.set_position_mode(posMode="long_short_mode")
 accountAPI.set_leverage(instId=INST_ID, lever=LEVERAGE, mgnMode="isolated")
 
 # ✅ Store order details
-last_long_order_id = None
-last_short_order_id = None
-first_run = True  # ✅ Flag to track first cycle
+lastLongOrderId = None
+lastShortOrderId = None
+firstRun = True  # ✅ Flag to track first cycle
 
 
-def get_active_orders():
+def getActiveOrders():
     """ Get currently active (unfilled) post-only orders. """
     orders = tradeAPI.get_order_list(instId=INST_ID)
-    active_orders = {"long": None, "short": None}
+    activeOrders = {"long": None, "short": None}
 
     if orders["code"] == "0" and orders["data"]:
         for order in orders["data"]:
             if order["posSide"] == "long":
-                active_orders["long"] = order["ordId"]
+                activeOrders["long"] = order["ordId"]
             elif order["posSide"] == "short":
-                active_orders["short"] = order["ordId"]
-    return active_orders
+                activeOrders["short"] = order["ordId"]
+    return activeOrders
 
 
-def get_open_positions():
+def getOpenPositions():
     """ Get current open positions. """
     positions = accountAPI.get_positions(instId=INST_ID)
 
-    long_entry_price = None
-    short_entry_price = None
-    long_size = 0
-    short_size = 0
+    longEntryPrice = None
+    shortEntryPrice = None
+    longSize = 0
+    shortSize = 0
 
     if positions["code"] == "0" and positions["data"]:
         for pos in positions["data"]:
-            avg_price = pos.get("avgPx", "0")  # ✅ Default to "0" if missing
-            pos_size = pos.get("pos", "0")  # ✅ Default to "0" if missing
+            avgPrice = pos.get("avgPx", "0")  # ✅ Default to "0" if missing
+            posSize = pos.get("pos", "0")  # ✅ Default to "0" if missing
 
-            if avg_price.strip() == "":  # ✅ Check if it's an empty string
-                avg_price = "0"
+            if avgPrice.strip() == "":  # ✅ Check if it's an empty string
+                avgPrice = "0"
 
-            if pos_size.strip() == "":  # ✅ Check if it's an empty string
-                pos_size = "0"
+            if posSize.strip() == "":  # ✅ Check if it's an empty string
+                posSize = "0"
 
             if pos["posSide"] == "long":
-                long_entry_price = float(avg_price)
-                long_size = float(pos_size)
+                longEntryPrice = float(avgPrice)
+                longSize = float(posSize)
             elif pos["posSide"] == "short":
-                short_entry_price = float(avg_price)
-                short_size = float(pos_size)
+                shortEntryPrice = float(avgPrice)
+                shortSize = float(posSize)
 
-    return long_entry_price, long_size, short_entry_price, short_size
+    return longEntryPrice, longSize, shortEntryPrice, shortSize
 
 
-def place_tp_sl_orders(pos_side, entry_price, size):
+def placeTpSlOrders(posSide, entryPrice, size):
     """ Places Take Profit (TP) and Stop Loss (SL) orders after a position is filled. """
-    if pos_side == "long":
-        tp_price = entry_price * (1 + TP_PERCENT / 100)  # ✅ TP at +1.5%
-        sl_price = entry_price * (1 - SL_PERCENT / 100)  # ✅ SL at -0.5%
-        close_side = "sell"
+    if posSide == "long":
+        tpPrice = entryPrice * (1 + TP_PERCENT / 100)  # ✅ TP at +1.5%
+        slPrice = entryPrice * (1 - SL_PERCENT / 100)  # ✅ SL at -0.5%
+        closeSide = "sell"
     else:
-        tp_price = entry_price * (1 - TP_PERCENT / 100)  # ✅ TP at -1.5%
-        sl_price = entry_price * (1 + SL_PERCENT / 100)  # ✅ SL at +0.5%
-        close_side = "buy"
+        tpPrice = entryPrice * (1 - TP_PERCENT / 100)  # ✅ TP at -1.5%
+        slPrice = entryPrice * (1 + SL_PERCENT / 100)  # ✅ SL at +0.5%
+        closeSide = "buy"
 
-    print(f"🎯 Placing TP & SL for {pos_side.upper()} Position: Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+    print(f"🎯 Placing TP & SL for {posSide.upper()} Position: Entry={entryPrice:.2f}, TP={tpPrice:.2f}, SL={slPrice:.2f}")
 
     # ✅ Place Take Profit (TP) Limit Order
-    tp_order = tradeAPI.place_order(
+    tpOrder = tradeAPI.place_order(
         instId=INST_ID,
         tdMode="isolated",
-        side=close_side,
-        posSide=pos_side,
+        side=closeSide,
+        posSide=posSide,
         ordType="limit",
-        px=str(round(tp_price, 2)),  # ✅ Limit order for TP
+        px=str(round(tpPrice, 2)),  # ✅ Limit order for TP
         sz=str(size),
         reduceOnly="true"
     )
-    if tp_order["code"] == "0":
-        print(f"✅ TP Order Placed at {tp_price:.2f}")
+    if tpOrder["code"] == "0":
+        print(f"✅ TP Order Placed at {tpPrice:.2f}")
     else:
-        print(f"❌ Error placing TP: {tp_order}")
+        print(f"❌ Error placing TP: {tpOrder}")
 
     # ✅ Place Stop Loss (SL) as a **Trigger Order**
-    sl_order = tradeAPI.place_order(
+    slOrder = tradeAPI.place_order(
         instId=INST_ID,
         tdMode="isolated",
-        side=close_side,
-        posSide=pos_side,
+        side=closeSide,
+        posSide=posSide,
         ordType="trigger",  # ✅ Correct SL order type
-        slTriggerPx=str(round(sl_price, 2)),  # ✅ SL Trigger Price
+        slTriggerPx=str(round(slPrice, 2)),  # ✅ SL Trigger Price
         sz=str(size),
         reduceOnly="true"
     )
-    if sl_order["code"] == "0":
-        print(f"✅ SL Order Placed at {sl_price:.2f}")
+    if slOrder["code"] == "0":
+        print(f"✅ SL Order Placed at {slPrice:.2f}")
     else:
-        print(f"❌ Error placing SL: {sl_order}")
+        print(f"❌ Error placing SL: {slOrder}")
 
 
 
-def amend_or_place_order(order_id, side, pos_side, new_price):
+def amendOrPlaceOrder(orderId, side, posSide, newPrice):
     """ Places or amends an order. """
-    global first_run
+    global firstRun
 
-    if first_run or order_id is None:
-        print(f"🚀 Placing {pos_side} order at {new_price:.2f}")
-        new_order = tradeAPI.place_order(
+    if firstRun or orderId is None:
+        print(f"🚀 Placing {posSide} order at {newPrice:.2f}")
+        newOrder = tradeAPI.place_order(
             instId=INST_ID,
             tdMode="isolated",
             side=side,
-            posSide=pos_side,
+            posSide=posSide,
             ordType="post_only",
-            px=str(round(new_price, 2)),
+            px=str(round(newPrice, 2)),
             sz=ORDER_SIZE,
             reduceOnly="false"
         )
 
-        if new_order["code"] == "0":
-            new_order_id = new_order["data"][0]["ordId"]
-            print(f"✅ New {pos_side.capitalize()} Order Placed at {new_price:.2f} (Post-Only)")
-            return new_order_id
+        if newOrder["code"] == "0":
+            newOrderId = newOrder["data"][0]["ordId"]
+            print(f"✅ New {posSide.capitalize()} Order Placed at {newPrice:.2f} (Post-Only)")
+            return newOrderId
         else:
-            print(f"❌ Error placing {pos_side} order: {new_order}")
+            print(f"❌ Error placing {posSide} order: {newOrder}")
             return None
 
-    print(f"🔄 Amending {pos_side} Order ID: {order_id} to new price {new_price:.2f}")
-    amend_response = tradeAPI.amend_order(instId=INST_ID, ordId=order_id, newPx=str(round(new_price, 2)))
+    print(f"🔄 Amending {posSide} Order ID: {orderId} to new price {newPrice:.2f}")
+    amendResponse = tradeAPI.amend_order(instId=INST_ID, ordId=orderId, newPx=str(round(newPrice, 2)))
 
-    if amend_response["code"] == "0":
-        print(f"✅ {pos_side.capitalize()} Order Amended to {new_price:.2f}")
-        return order_id
+    if amendResponse["code"] == "0":
+        print(f"✅ {posSide.capitalize()} Order Amended to {newPrice:.2f}")
+        return orderId
     else:
-        print(f"❌ Failed to amend {pos_side} order. Retrying...")
+        print(f"❌ Failed to amend {posSide} order. Retrying...")
         return None
 
 
 # 🔹 **Start the bot, updating every 20 minutes**
 while True:
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"🔄 Updating Orders | Current Time: {current_time}")
+    currentTime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"🔄 Updating Orders | Current Time: {currentTime}")
 
     # ✅ Fetch latest mark price
-    mark_price = float(publicAPI.get_mark_price(instType="SWAP", instId=INST_ID)["data"][0]["markPx"])
-    long_price = mark_price * (1 - ORDER_DISTANCE_PERCENT / 100)  # 2% lower
-    short_price = mark_price * (1 + ORDER_DISTANCE_PERCENT / 100)  # 2% higher
+    markPrice = float(publicAPI.get_mark_price(instType="SWAP", instId=INST_ID)["data"][0]["markPx"])
+    longPrice = markPrice * (1 - ORDER_DISTANCE_PERCENT / 100)  # 2% lower
+    shortPrice = markPrice * (1 + ORDER_DISTANCE_PERCENT / 100)  # 2% higher
 
     # ✅ Get active orders
-    active_orders = get_active_orders()
+    activeOrders = getActiveOrders()
 
     # ✅ First cycle places orders, subsequent cycles amend them
-    last_long_order_id = amend_or_place_order(active_orders["long"], "buy", "long", long_price)
-    last_short_order_id = amend_or_place_order(active_orders["short"], "sell", "short", short_price)
+    lastLongOrderId = amendOrPlaceOrder(activeOrders["long"], "buy", "long", longPrice)
+    lastShortOrderId = amendOrPlaceOrder(activeOrders["short"], "sell", "short", shortPrice)
 
     # ✅ Check for filled positions and set TP/SL
-    long_entry, long_size, short_entry, short_size = get_open_positions()
+    longEntry, longSize, shortEntry, shortSize = getOpenPositions()
 
-    if long_size > 0:
-        place_tp_sl_orders("long", long_entry, long_size)
+    if longSize > 0:
+        placeTpSlOrders("long", longEntry, longSize)
 
-    if short_size > 0:
-        place_tp_sl_orders("short", short_entry, short_size)
+    if shortSize > 0:
+        placeTpSlOrders("short", shortEntry, shortSize)
 
     # ✅ Ensure First Cycle Completes Properly
-    first_run = False
+    firstRun = False
 
     # ✅ Show next update time
-    next_update = datetime.datetime.now() + datetime.timedelta(seconds=ORDER_UPDATE_INTERVAL)
-    print(f"⏳ Waiting {ORDER_UPDATE_INTERVAL // 60} minutes | Next Update: {next_update.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    nextUpdate = datetime.datetime.now() + datetime.timedelta(seconds=ORDER_UPDATE_INTERVAL)
+    print(f"⏳ Waiting {ORDER_UPDATE_INTERVAL // 60} minutes | Next Update: {nextUpdate.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     time.sleep(ORDER_UPDATE_INTERVAL)

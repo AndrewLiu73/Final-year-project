@@ -8,17 +8,17 @@ OUTPUT_FILE = Path('../../../data/filtered_eth_addresses.txt')
 THRESHOLD = 1000.0  # accountValue threshold
 
 
-def extract_eth_addresses(input_path: Path, output_path: Path, threshold: float):
+def extractEthAddresses(inputPath: Path, outputPath: Path, threshold: float):
     """
     Read a JSON file containing leaderboard rows, filter entries with accountValue > threshold,
     and extract ethAddress values.
     """
-    if not input_path.exists():
-        print(f"Input file not found: {input_path}")
+    if not inputPath.exists():
+        print(f"Input file not found: {inputPath}")
         return
 
     # Load JSON
-    with open(input_path, 'r', encoding='utf-8') as f:
+    with open(inputPath, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     # Determine if structure is list or dict with 'leaderboardRows'
@@ -39,19 +39,19 @@ def extract_eth_addresses(input_path: Path, output_path: Path, threshold: float)
                 addresses.append(addr)
 
     # Deduplicate
-    unique_addresses = sorted(set(addresses))
+    uniqueAddresses = sorted(set(addresses))
 
     # Output results
-    print(f"Found {len(unique_addresses)} addresses with accountValue > {threshold}:")
-    for addr in unique_addresses:
+    print(f"Found {len(uniqueAddresses)} addresses with accountValue > {threshold}:")
+    for addr in uniqueAddresses:
         print(addr)
 
     # Write to file
-    with open(output_path, 'w', encoding='utf-8') as f:
-        for addr in unique_addresses:
+    with open(outputPath, 'w', encoding='utf-8') as f:
+        for addr in uniqueAddresses:
             f.write(addr + '\n')
-    print(f"Addresses written to {output_path}")
+    print(f"Addresses written to {outputPath}")
 
 
 if __name__ == '__main__':
-    extract_eth_addresses(INPUT_FILE, OUTPUT_FILE, THRESHOLD)
+    extractEthAddresses(INPUT_FILE, OUTPUT_FILE, THRESHOLD)

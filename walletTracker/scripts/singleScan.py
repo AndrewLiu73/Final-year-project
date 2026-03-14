@@ -20,8 +20,8 @@ from profitabilityScanner import ProfitabilityScanner
 MONGO_URI = os.getenv("MONGO_URI")
 
 
-async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
-    print(f"Scanning wallet: {wallet_address}")
+async def scanWallet(walletAddress: str, saveToMongo: bool = True):
+    print(f"Scanning wallet: {walletAddress}")
     print(f"Started at:      {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 60)
 
@@ -30,7 +30,7 @@ async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
     # calculate_profitability is async now because it uses httpx under the hood
     # instead of blocking requests. need to await it and clean up the session after
     try:
-        metrics = await scanner.calculate_profitability(wallet_address)
+        metrics = await scanner.calculate_profitability(walletAddress)
     finally:
         await scanner.close()
 
@@ -77,7 +77,7 @@ async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
                 f"uPnL=${pos['unrealized_pnl']}"
             )
 
-    if not save_to_mongo:
+    if not saveToMongo:
         print("\nMongo save skipped (--dry-run mode)")
         return metrics
 
@@ -85,7 +85,7 @@ async def scan_wallet(wallet_address: str, save_to_mongo: bool = True):
     client = AsyncIOMotorClient(MONGO_URI)
     db = client["hyperliquid"]
     result = await db.profitability_metrics.update_one(
-        {"wallet_address": wallet_address},
+        {"wallet_address": walletAddress},
         {"$set": metrics},
         upsert=True
     )
@@ -109,8 +109,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     wallet = sys.argv[1]
-    dry_run = "--dry-run" in sys.argv
+    dryRun = "--dry-run" in sys.argv
 
     # asyncio.run() creates an event loop and runs the coroutine.
     # needed because the scanner uses async httpx calls now
-    asyncio.run(scan_wallet(wallet, save_to_mongo=not dry_run))
+    asyncio.run(scanWallet(wallet, saveToMongo=not dryRun))

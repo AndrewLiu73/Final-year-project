@@ -68,19 +68,19 @@ logger = logging.getLogger("HyperliquidTracker")
 shutdown_event = asyncio.Event()
 
 
-def handle_shutdown(signum, frame):
+def handleShutdown(signum, frame):
     logger.info("Shutdown signal received")
     shutdown_event.set()
 
 
-signal.signal(signal.SIGINT, handle_shutdown)
-signal.signal(signal.SIGTERM, handle_shutdown)
+signal.signal(signal.SIGINT, handleShutdown)
+signal.signal(signal.SIGTERM, handleShutdown)
 
 
 # Rate Limiter
 class RateLimiter:
-    def __init__(self, max_calls, period):
-        self.max_calls = max_calls
+    def __init__(self, maxCalls, period):
+        self.maxCalls = maxCalls
         self.period = period
         self.calls = deque()
 
@@ -89,17 +89,17 @@ class RateLimiter:
         while self.calls and self.calls[0] < now - self.period:
             self.calls.popleft()
 
-        if len(self.calls) >= self.max_calls:
-            sleep_time = self.period - (now - self.calls[0])
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
+        if len(self.calls) >= self.maxCalls:
+            sleepTime = self.period - (now - self.calls[0])
+            if sleepTime > 0:
+                await asyncio.sleep(sleepTime)
             return await self.acquire()
 
         self.calls.append(now)
 
 
 # Extract users
-async def extract_all_users(data):
+async def extractAllUsers(data):
     """Extract all user addresses from any data structure"""
     users = set()
 
@@ -109,7 +109,7 @@ async def extract_all_users(data):
         'account', 'owner', 'liquidatedUser', 'liquidator'
     ]
 
-    def extract_recursive(obj):
+    def extractRecursive(obj):
         if isinstance(obj, dict):
             for key, value in obj.items():
                 if key in user_fields:
@@ -120,23 +120,23 @@ async def extract_all_users(data):
                             if isinstance(item, str) and item.startswith('0x') and len(item) == 42:
                                 users.add(item.lower())
                 else:
-                    extract_recursive(value)
+                    extractRecursive(value)
         elif isinstance(obj, list):
             for item in obj:
-                extract_recursive(item)
+                extractRecursive(item)
 
-    extract_recursive(data)
+    extractRecursive(data)
     return users
 
 
 # Batch insert
-async def batch_add_users(users_collection, user_batch):
+async def batchAddUsers(usersCollection, userBatch):
     """Bulk insert users"""
-    if not user_batch:
+    if not userBatch:
         return 0, 0
 
     try:
-        current_time = datetime.now(timezone.utc).isoformat()
+        currentTime = datetime.now(timezone.utc).isoformat()
 
         operations = [
             UpdateOne(
@@ -144,24 +144,24 @@ async def batch_add_users(users_collection, user_batch):
                 {
                     "$setOnInsert": {
                         "user": user,
-                        "first_seen": current_time
+                        "first_seen": currentTime
                     },
-                    "$set": {"last_seen": current_time},
+                    "$set": {"last_seen": currentTime},
                     "$inc": {"tx_count": 1}
                 },
                 upsert=True
             )
-            for user in user_batch
+            for user in userBatch
         ]
 
-        result = await users_collection.bulk_write(operations, ordered=False)
-        new_users = result.upserted_count
-        updated_users = result.modified_count
+        result = await usersCollection.bulk_write(operations, ordered=False)
+        newUsers = result.upserted_count
+        updatedUsers = result.modified_count
 
-        if new_users > 0:
-            logger.info(f"Batch: {new_users} new, {updated_users} updated")
+        if newUsers > 0:
+            logger.info(f"Batch: {newUsers} new, {updatedUsers} updated")
 
-        return new_users, updated_users
+        return newUsers, updatedUsers
 
     except Exception as e:
         logger.error(f"Batch error: {e}")
@@ -169,11 +169,11 @@ async def batch_add_users(users_collection, user_batch):
 
 
 # Log metrics
-async def log_metrics(db, metric_type, value, metadata=None):
+async def logMetrics(db, metricType, value, metadata=None):
     metrics_collection = db["system_metrics"]
     doc = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "metric_type": metric_type,
+        "metric_type": metricType,
         "value": value,
         "metadata": metadata or {}
     }
@@ -184,30 +184,30 @@ async def log_metrics(db, metric_type, value, metadata=None):
 
 
 # Setup indexes
-async def setup_indexes(db):
+async def setupIndexes(db):
     """Create database indexes (skip if already exist)"""
     try:
-        users_collection = db["users"]
+        usersCollection = db["users"]
 
         # Get existing indexes
-        existing_indexes = await users_collection.index_information()
+        existingIndexes = await usersCollection.index_information()
 
         # Only create if doesn't exist
-        if 'user_1' not in existing_indexes:
-            await users_collection.create_index("user", unique=True)
+        if 'user_1' not in existingIndexes:
+            await usersCollection.create_index("user", unique=True)
             logger.info("Created unique index on 'user'")
         else:
             logger.info("Index 'user_1' already exists, skipping")
 
         # Create other indexes
-        if 'last_seen_-1' not in existing_indexes:
-            await users_collection.create_index([("last_seen", -1)])
+        if 'last_seen_-1' not in existingIndexes:
+            await usersCollection.create_index([("last_seen", -1)])
 
-        if 'tx_count_-1' not in existing_indexes:
-            await users_collection.create_index([("tx_count", -1)])
+        if 'tx_count_-1' not in existingIndexes:
+            await usersCollection.create_index([("tx_count", -1)])
 
-        if 'first_seen_-1' not in existing_indexes:
-            await users_collection.create_index([("first_seen", -1)])
+        if 'first_seen_-1' not in existingIndexes:
+            await usersCollection.create_index([("first_seen", -1)])
 
         logger.info("Database indexes verified")
 
@@ -216,7 +216,7 @@ async def setup_indexes(db):
 
 
 # Get active coins
-async def get_active_coins():
+async def getActiveCoins():
     """Get all active trading pairs"""
     try:
         async with aiohttp.ClientSession() as session:
@@ -235,7 +235,7 @@ async def get_active_coins():
 
 
 # S3 backfill - Download specific block range (e.g., blocks 200k-400k)
-async def backfill_from_s3_limited(users_collection):
+async def backfillFromS3Limited(usersCollection):
     """
     S3 backfill - Download specific range of blocks
     Optimized for us-east-1 (Hyperliquid's bucket location)
@@ -278,7 +278,7 @@ async def backfill_from_s3_limited(users_collection):
         logger.info(f"Bucket location: us-east-1 (US East - Virginia)")
         paginator = s3_client.get_paginator('list_objects_v2')
 
-        all_blocks = []
+        allBlocks = []
 
         try:
             for page in paginator.paginate(
@@ -287,13 +287,13 @@ async def backfill_from_s3_limited(users_collection):
                     RequestPayer='requester'
             ):
                 if 'Contents' in page:
-                    all_blocks.extend(page['Contents'])
+                    allBlocks.extend(page['Contents'])
 
-                    if len(all_blocks) % 50000 == 0:
-                        logger.info(f"Listed {len(all_blocks):,} blocks so far...")
+                    if len(allBlocks) % 50000 == 0:
+                        logger.info(f"Listed {len(allBlocks):,} blocks so far...")
 
                     # Stop listing after we have enough
-                    if len(all_blocks) >= total_blocks_to_list:
+                    if len(allBlocks) >= total_blocks_to_list:
                         logger.info(f"Reached {total_blocks_to_list:,} blocks, stopping listing")
                         break
 
@@ -305,95 +305,95 @@ async def backfill_from_s3_limited(users_collection):
             logger.info("3. Check your AWS region configuration")
             return 0
 
-        if not all_blocks:
+        if not allBlocks:
             logger.warning("No blocks found in S3 bucket")
             return 0
 
-        logger.info(f"Total blocks listed: {len(all_blocks):,}")
+        logger.info(f"Total blocks listed: {len(allBlocks):,}")
 
         # Sort by newest first
         logger.info("Sorting blocks by date (newest first)...")
-        all_blocks.sort(key=lambda x: x['LastModified'], reverse=True)
+        allBlocks.sort(key=lambda x: x['LastModified'], reverse=True)
         logger.info("Sorting complete")
 
         # Skip the first N blocks (most recent ones already captured)
         if SKIP_FIRST_N_BLOCKS > 0:
             logger.info(f"Skipping first {SKIP_FIRST_N_BLOCKS:,} blocks (already processed)...")
-            blocks_to_consider = all_blocks[SKIP_FIRST_N_BLOCKS:]
-            logger.info(f"Remaining blocks after skip: {len(blocks_to_consider):,}")
+            blocksToConsider = allBlocks[SKIP_FIRST_N_BLOCKS:]
+            logger.info(f"Remaining blocks after skip: {len(blocksToConsider):,}")
         else:
-            blocks_to_consider = all_blocks
+            blocksToConsider = allBlocks
 
         # Calculate which blocks fit in 100GB limit
         logger.info(f"Calculating which blocks fit in {Config.S3_MAX_DOWNLOAD_GB} GB limit...")
-        max_bytes = Config.S3_MAX_DOWNLOAD_GB * 1024 * 1024 * 1024
-        cumulative_size = 0
-        blocks_to_process = []
+        maxBytes = Config.S3_MAX_DOWNLOAD_GB * 1024 * 1024 * 1024
+        cumulativeSize = 0
+        blocksToProcess = []
 
-        for block in blocks_to_consider:
-            if cumulative_size + block['Size'] > max_bytes:
+        for block in blocksToConsider:
+            if cumulativeSize + block['Size'] > maxBytes:
                 break
-            blocks_to_process.append(block)
-            cumulative_size += block['Size']
+            blocksToProcess.append(block)
+            cumulativeSize += block['Size']
 
-        total_size_gb = cumulative_size / (1024 ** 3)
+        totalSizeGb = cumulativeSize / (1024 ** 3)
 
         # Calculate block range info
-        if blocks_to_process:
-            first_block_date = blocks_to_process[0]['LastModified']
-            last_block_date = blocks_to_process[-1]['LastModified']
+        if blocksToProcess:
+            firstBlockDate = blocksToProcess[0]['LastModified']
+            lastBlockDate = blocksToProcess[-1]['LastModified']
         else:
-            first_block_date = "N/A"
-            last_block_date = "N/A"
+            firstBlockDate = "N/A"
+            lastBlockDate = "N/A"
 
         # Estimate costs
-        request_cost = len(blocks_to_process) * 0.0004 / 1000  # $0.0004 per 1000 GET requests
-        transfer_cost = total_size_gb * 0.09 if total_size_gb > 100 else 0  # First 100GB free
-        total_estimated_cost = request_cost + transfer_cost
+        requestCost = len(blocksToProcess) * 0.0004 / 1000  # $0.0004 per 1000 GET requests
+        transferCost = totalSizeGb * 0.09 if totalSizeGb > 100 else 0  # First 100GB free
+        totalEstimatedCost = requestCost + transferCost
 
         logger.info("=" * 70)
         logger.info(f"S3 DOWNLOAD PLAN:")
-        logger.info(f"  Total blocks listed: {len(all_blocks):,}")
+        logger.info(f"  Total blocks listed: {len(allBlocks):,}")
         logger.info(f"  Skipped (recent): {SKIP_FIRST_N_BLOCKS:,}")
-        logger.info(f"  Blocks to download: {len(blocks_to_process):,}")
+        logger.info(f"  Blocks to download: {len(blocksToProcess):,}")
         logger.info(
-            f"  Actual range: Block #{SKIP_FIRST_N_BLOCKS + 1:,} to #{SKIP_FIRST_N_BLOCKS + len(blocks_to_process):,}")
-        logger.info(f"  Size to download: {total_size_gb:.2f} GB")
-        logger.info(f"  Date range: {last_block_date} to {first_block_date}")
-        logger.info(f"  Estimated cost: ${total_estimated_cost:.3f}")
-        logger.info(f"    - Request cost: ${request_cost:.3f}")
-        logger.info(f"    - Transfer cost: ${transfer_cost:.3f} (first 100GB free)")
+            f"  Actual range: Block #{SKIP_FIRST_N_BLOCKS + 1:,} to #{SKIP_FIRST_N_BLOCKS + len(blocksToProcess):,}")
+        logger.info(f"  Size to download: {totalSizeGb:.2f} GB")
+        logger.info(f"  Date range: {lastBlockDate} to {firstBlockDate}")
+        logger.info(f"  Estimated cost: ${totalEstimatedCost:.3f}")
+        logger.info(f"    - Request cost: ${requestCost:.3f}")
+        logger.info(f"    - Transfer cost: ${transferCost:.3f} (first 100GB free)")
         logger.info("=" * 70)
 
-        if len(blocks_to_process) == 0:
+        if len(blocksToProcess) == 0:
             logger.warning("No blocks to download after skipping and size calculation")
             return 0
 
         # Ask for confirmation
-        logger.info(f"Ready to download {len(blocks_to_process):,} historical blocks")
+        logger.info(f"Ready to download {len(blocksToProcess):,} historical blocks")
         logger.info("Starting in 5 seconds... (Ctrl+C to cancel)")
         await asyncio.sleep(5)
 
         # Process blocks with progress updates
         logger.info("Starting block download and processing...")
-        user_batch = set()
-        total_new_users = 0
-        downloaded_bytes = 0
-        start_time = time.time()
+        userBatch = set()
+        totalNewUsers = 0
+        downloadedBytes = 0
+        startTime = time.time()
 
-        for i, block_obj in enumerate(blocks_to_process):
+        for i, block_obj in enumerate(blocksToProcess):
             if shutdown_event.is_set():
                 logger.info("Shutdown requested, stopping...")
                 break
 
             try:
                 key = block_obj['Key']
-                block_size_mb = block_obj['Size'] / (1024 * 1024)
+                blockSizeMb = block_obj['Size'] / (1024 * 1024)
 
                 # Log every 10th block
                 if i % 10 == 0:
-                    actual_block_num = SKIP_FIRST_N_BLOCKS + i + 1
-                    logger.info(f"[{i + 1}/{len(blocks_to_process)}] Processing block #{actual_block_num:,}")
+                    actualBlockNum = SKIP_FIRST_N_BLOCKS + i + 1
+                    logger.info(f"[{i + 1}/{len(blocksToProcess)}] Processing block #{actualBlockNum:,}")
 
                 # Download
                 response = s3_client.get_object(
@@ -402,7 +402,7 @@ async def backfill_from_s3_limited(users_collection):
                     RequestPayer='requester'
                 )
                 content = response['Body'].read()
-                downloaded_bytes += len(content)
+                downloadedBytes += len(content)
 
                 # Decompress if needed
                 if key.endswith('.lz4'):
@@ -411,42 +411,42 @@ async def backfill_from_s3_limited(users_collection):
                 # Parse
                 try:
                     if key.endswith('.rmp') or key.endswith('.rmp.lz4'):
-                        block_data = msgpack.unpackb(content, raw=False)
+                        blockData = msgpack.unpackb(content, raw=False)
                     else:
-                        block_data = json.loads(content)
+                        blockData = json.loads(content)
                 except:
                     try:
-                        block_data = json.loads(content)
+                        blockData = json.loads(content)
                     except:
-                        block_data = msgpack.unpackb(content, raw=False)
+                        blockData = msgpack.unpackb(content, raw=False)
 
                 # Extract users
-                users = await extract_all_users(block_data)
-                user_batch.update(users)
+                users = await extractAllUsers(blockData)
+                userBatch.update(users)
 
                 # Batch insert every 50 blocks
-                if len(user_batch) >= 500 or (i % 50 == 0 and user_batch):
-                    new_count, _ = await batch_add_users(users_collection, user_batch)
-                    total_new_users += new_count
-                    user_batch.clear()
+                if len(userBatch) >= 500 or (i % 50 == 0 and userBatch):
+                    newCount, _ = await batchAddUsers(usersCollection, userBatch)
+                    totalNewUsers += newCount
+                    userBatch.clear()
 
                     # Progress update every 50 blocks
                     if i % 50 == 0:
-                        downloaded_gb = downloaded_bytes / (1024 ** 3)
-                        progress_pct = (i + 1) / len(blocks_to_process) * 100
-                        elapsed = time.time() - start_time
-                        blocks_per_sec = (i + 1) / elapsed
-                        eta_seconds = (len(blocks_to_process) - i - 1) / blocks_per_sec if blocks_per_sec > 0 else 0
-                        eta_minutes = eta_seconds / 60
+                        downloadedGb = downloadedBytes / (1024 ** 3)
+                        progressPct = (i + 1) / len(blocksToProcess) * 100
+                        elapsed = time.time() - startTime
+                        blocksPerSec = (i + 1) / elapsed
+                        etaSeconds = (len(blocksToProcess) - i - 1) / blocksPerSec if blocksPerSec > 0 else 0
+                        etaMinutes = etaSeconds / 60
 
                         logger.info("=" * 70)
                         logger.info(f"PROGRESS UPDATE:")
                         logger.info(f"  Current position: Block #{SKIP_FIRST_N_BLOCKS + i + 1:,}")
-                        logger.info(f"  Progress: {i + 1:,}/{len(blocks_to_process):,} ({progress_pct:.1f}%)")
-                        logger.info(f"  Downloaded: {downloaded_gb:.2f}/{Config.S3_MAX_DOWNLOAD_GB} GB")
-                        logger.info(f"  New users: {total_new_users:,}")
-                        logger.info(f"  Speed: {blocks_per_sec:.2f} blocks/sec")
-                        logger.info(f"  ETA: {eta_minutes:.1f} minutes")
+                        logger.info(f"  Progress: {i + 1:,}/{len(blocksToProcess):,} ({progressPct:.1f}%)")
+                        logger.info(f"  Downloaded: {downloadedGb:.2f}/{Config.S3_MAX_DOWNLOAD_GB} GB")
+                        logger.info(f"  New users: {totalNewUsers:,}")
+                        logger.info(f"  Speed: {blocksPerSec:.2f} blocks/sec")
+                        logger.info(f"  ETA: {etaMinutes:.1f} minutes")
                         logger.info("=" * 70)
 
             except Exception as e:
@@ -454,28 +454,28 @@ async def backfill_from_s3_limited(users_collection):
                 continue
 
         # Final batch
-        if user_batch:
-            logger.info(f"Saving final batch of {len(user_batch):,} users...")
-            new_count, _ = await batch_add_users(users_collection, user_batch)
-            total_new_users += new_count
+        if userBatch:
+            logger.info(f"Saving final batch of {len(userBatch):,} users...")
+            newCount, _ = await batchAddUsers(usersCollection, userBatch)
+            totalNewUsers += newCount
 
-        final_gb = downloaded_bytes / (1024 ** 3)
-        total_time = time.time() - start_time
-        actual_request_cost = len(blocks_to_process) * 0.0004 / 1000
-        actual_transfer_cost = final_gb * 0.09 if final_gb > 100 else 0
-        actual_total_cost = actual_request_cost + actual_transfer_cost
+        finalGb = downloadedBytes / (1024 ** 3)
+        totalTime = time.time() - startTime
+        actualRequestCost = len(blocksToProcess) * 0.0004 / 1000
+        actualTransferCost = finalGb * 0.09 if finalGb > 100 else 0
+        actualTotalCost = actualRequestCost + actualTransferCost
 
         logger.info("=" * 70)
         logger.info("S3 BACKFILL COMPLETE!")
-        logger.info(f"  Block range: #{SKIP_FIRST_N_BLOCKS + 1:,} to #{SKIP_FIRST_N_BLOCKS + len(blocks_to_process):,}")
-        logger.info(f"  Blocks processed: {len(blocks_to_process):,}")
-        logger.info(f"  Downloaded: {final_gb:.2f} GB")
-        logger.info(f"  New users: {total_new_users:,}")
-        logger.info(f"  Time taken: {total_time / 60:.1f} minutes")
-        logger.info(f"  Actual cost: ${actual_total_cost:.3f}")
+        logger.info(f"  Block range: #{SKIP_FIRST_N_BLOCKS + 1:,} to #{SKIP_FIRST_N_BLOCKS + len(blocksToProcess):,}")
+        logger.info(f"  Blocks processed: {len(blocksToProcess):,}")
+        logger.info(f"  Downloaded: {finalGb:.2f} GB")
+        logger.info(f"  New users: {totalNewUsers:,}")
+        logger.info(f"  Time taken: {totalTime / 60:.1f} minutes")
+        logger.info(f"  Actual cost: ${actualTotalCost:.3f}")
         logger.info("=" * 70)
 
-        return total_new_users
+        return totalNewUsers
 
     except Exception as e:
         logger.error(f"S3 backfill failed: {e}")
@@ -485,18 +485,18 @@ async def backfill_from_s3_limited(users_collection):
 
 
 # REST API backfill (FREE alternative)
-async def backfill_from_rest_api(users_collection):
+async def backfillFromRestApi(usersCollection):
     """FREE: Use REST API (no AWS needed)"""
     logger.info("Starting FREE REST API backfill...")
-    rate_limiter = RateLimiter(max_calls=30, period=60)
+    rateLimiter = RateLimiter(maxCalls=30, period=60)
 
-    coins = await get_active_coins()
-    total_new_users = 0
+    coins = await getActiveCoins()
+    totalNewUsers = 0
 
     async with aiohttp.ClientSession() as session:
         for coin in coins[:30]:
             try:
-                await rate_limiter.acquire()
+                await rateLimiter.acquire()
 
                 payload = {"type": "recentTrades", "coin": coin}
 
@@ -507,90 +507,90 @@ async def backfill_from_rest_api(users_collection):
                 ) as resp:
                     if resp.status == 200:
                         trades = await resp.json()
-                        user_batch = set()
+                        userBatch = set()
 
                         for trade in trades:
-                            users = await extract_all_users(trade)
-                            user_batch.update(users)
+                            users = await extractAllUsers(trade)
+                            userBatch.update(users)
 
-                        if user_batch:
-                            new_count, _ = await batch_add_users(users_collection, user_batch)
-                            total_new_users += new_count
-                            logger.info(f"{coin}: {new_count} new users")
+                        if userBatch:
+                            newCount, _ = await batchAddUsers(usersCollection, userBatch)
+                            totalNewUsers += newCount
+                            logger.info(f"{coin}: {newCount} new users")
 
             except Exception as e:
                 logger.error(f"Error for {coin}: {e}")
 
-    logger.info(f"REST backfill complete: {total_new_users} new users (FREE)")
-    return total_new_users
+    logger.info(f"REST backfill complete: {totalNewUsers} new users (FREE)")
+    return totalNewUsers
 
 
 # Real-time WebSocket
-async def websocket_watcher(db):
+async def websocketWatcher(db):
     """Real-time trade tracking"""
-    users_collection = db["users"]
+    usersCollection = db["users"]
 
-    coins = await get_active_coins()
-    coins_to_monitor = coins[:Config.MAX_COIN_SUBSCRIPTIONS]
+    coins = await getActiveCoins()
+    coinsToMonitor = coins[:Config.MAX_COIN_SUBSCRIPTIONS]
 
-    logger.info(f"Monitoring {len(coins_to_monitor)} coins")
+    logger.info(f"Monitoring {len(coinsToMonitor)} coins")
 
-    message_queue = asyncio.Queue(maxsize=Config.QUEUE_MAX_SIZE)
+    messageQueue = asyncio.Queue(maxsize=Config.QUEUE_MAX_SIZE)
 
-    total_trades = 0
-    total_new_users = 0
-    start_time = datetime.now(timezone.utc)
+    totalTrades = 0
+    totalNewUsers = 0
+    startTime = datetime.now(timezone.utc)
 
-    async def process_queue():
-        user_batch = set()
-        last_batch_time = datetime.now(timezone.utc)
+    async def processQueue():
+        userBatch = set()
+        lastBatchTime = datetime.now(timezone.utc)
 
         while not shutdown_event.is_set():
             try:
                 try:
-                    trade = await asyncio.wait_for(message_queue.get(), timeout=Config.BATCH_TIMEOUT)
-                    users = await extract_all_users(trade)
-                    user_batch.update(users)
-                    message_queue.task_done()
+                    trade = await asyncio.wait_for(messageQueue.get(), timeout=Config.BATCH_TIMEOUT)
+                    users = await extractAllUsers(trade)
+                    userBatch.update(users)
+                    messageQueue.task_done()
                 except asyncio.TimeoutError:
                     pass
 
-                current_time = datetime.now(timezone.utc)
-                time_elapsed = (current_time - last_batch_time).total_seconds()
+                currentTime = datetime.now(timezone.utc)
+                timeElapsed = (currentTime - lastBatchTime).total_seconds()
 
-                if len(user_batch) >= Config.BATCH_SIZE or (user_batch and time_elapsed >= Config.BATCH_TIMEOUT):
-                    new_count, _ = await batch_add_users(users_collection, user_batch)
-                    nonlocal total_new_users
-                    total_new_users += new_count
-                    user_batch.clear()
-                    last_batch_time = current_time
+                if len(userBatch) >= Config.BATCH_SIZE or (userBatch and timeElapsed >= Config.BATCH_TIMEOUT):
+                    newCount, _ = await batchAddUsers(usersCollection, userBatch)
+                    nonlocal totalNewUsers
+                    totalNewUsers += newCount
+                    userBatch.clear()
+                    lastBatchTime = currentTime
 
             except Exception as e:
                 logger.error(f"Queue error: {e}")
                 await asyncio.sleep(1)
 
-        if user_batch:
-            await batch_add_users(users_collection, user_batch)
+        if userBatch:
+            await batchAddUsers(usersCollection, userBatch)
 
-    processor_task = asyncio.create_task(process_queue())
+    processorTask = asyncio.create_task(processQueue())
 
-    retry_delay = 5
-    max_retry_delay = 300
+    retryDelay = 5
+    maxRetryDelay = 300
 
     while not shutdown_event.is_set():
         try:
             async with websockets.connect(Config.WS_URL, ping_interval=20, ping_timeout=10) as ws:
                 logger.info("WebSocket connected")
-                retry_delay = 5
+                retryDelay = 5
 
-                for coin in coins_to_monitor:
+                for coin in coinsToMonitor:
                     await ws.send(json.dumps({
                         "method": "subscribe",
                         "subscription": {"type": "trades", "coin": coin}
                     }))
                     await asyncio.sleep(0.01)
 
-                logger.info(f"Subscribed to {len(coins_to_monitor)} coins")
+                logger.info(f"Subscribed to {len(coinsToMonitor)} coins")
 
                 async for message in ws:
                     if shutdown_event.is_set():
@@ -605,32 +605,32 @@ async def websocket_watcher(db):
                         continue
 
                     if isinstance(data, dict) and data.get('channel') == 'trades':
-                        trade_list = data.get('data', [])
-                        if not isinstance(trade_list, list):
-                            trade_list = [trade_list]
+                        tradeList = data.get('data', [])
+                        if not isinstance(tradeList, list):
+                            tradeList = [tradeList]
 
-                        for trade in trade_list:
+                        for trade in tradeList:
                             try:
-                                message_queue.put_nowait(trade)
-                                total_trades += 1
+                                messageQueue.put_nowait(trade)
+                                totalTrades += 1
 
-                                if total_trades % 1000 == 0:
-                                    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                                    throughput = total_trades / elapsed if elapsed > 0 else 0
+                                if totalTrades % 1000 == 0:
+                                    elapsed = (datetime.now(timezone.utc) - startTime).total_seconds()
+                                    throughput = totalTrades / elapsed if elapsed > 0 else 0
                                     logger.info(
-                                        f"Stats: {total_trades} trades, {total_new_users} new users, {throughput:.2f}/s")
+                                        f"Stats: {totalTrades} trades, {totalNewUsers} new users, {throughput:.2f}/s")
 
                             except asyncio.QueueFull:
                                 logger.warning("Queue full")
 
         except Exception as e:
-            logger.error(f"WebSocket error: {e} - reconnecting in {retry_delay}s")
+            logger.error(f"WebSocket error: {e} - reconnecting in {retryDelay}s")
 
         if not shutdown_event.is_set():
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, max_retry_delay)
+            await asyncio.sleep(retryDelay)
+            retryDelay = min(retryDelay * 2, maxRetryDelay)
 
-    await processor_task
+    await processorTask
 
 
 # Main
@@ -641,15 +641,15 @@ async def main():
 
     client = motor.motor_asyncio.AsyncIOMotorClient(Config.MONGO_URI)
     db = client["hyperliquid"]
-    users_collection = db["users"]
+    usersCollection = db["users"]
 
-    await setup_indexes(db)
+    await setupIndexes(db)
 
     # Historical backfill
     if Config.USE_S3_BACKFILL and HAS_S3_SUPPORT:
-        await backfill_from_s3_limited(users_collection)
+        await backfillFromS3Limited(usersCollection)
     else:
-        await backfill_from_rest_api(users_collection)
+        await backfillFromRestApi(usersCollection)
 
     logger.info("Historical backfill complete. Shutting down...")
     client.close()

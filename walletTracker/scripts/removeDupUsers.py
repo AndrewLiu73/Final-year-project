@@ -10,16 +10,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def clean_users_collection():
+def cleanUsersCollection():
 
-    mongo_uri = os.getenv('MONGO_URI')
+    mongoUri = os.getenv('MONGO_URI')
 
-    if not mongo_uri:
+    if not mongoUri:
         print("Error: MONGO_URI not found in .env file")
         return
 
     print("Connecting to MongoDB...")
-    client = MongoClient(mongo_uri)
+    client = MongoClient(mongoUri)
 
     db = client['hyperliquid']
     # run once in a script to backfill missing fields
@@ -75,8 +75,8 @@ def clean_users_collection():
 
     print(f"Found {len(duplicates)} wallet addresses with duplicates")
 
-    total_to_delete = sum(len(dup['docs']) - 1 for dup in duplicates)
-    print(f"Will remove {total_to_delete} duplicate documents")
+    totalToDelete = sum(len(dup['docs']) - 1 for dup in duplicates)
+    print(f"Will remove {totalToDelete} duplicate documents")
 
     print("\nExample duplicates:")
     for i, dup in enumerate(duplicates[:5], 1):
@@ -93,14 +93,14 @@ def clean_users_collection():
         return
 
     print("\nRemoving duplicates...")
-    deleted_count = 0
+    deletedCount = 0
 
     for dup in duplicates:
-        docs_to_delete = dup['docs'][1:]
-        result = db.users.delete_many({"_id": {"$in": docs_to_delete}})
-        deleted_count += result.deleted_count
+        docsToDelete = dup['docs'][1:]
+        result = db.users.delete_many({"_id": {"$in": docsToDelete}})
+        deletedCount += result.deletedCount
 
-    print(f"Successfully removed {deleted_count} duplicate documents")
+    print(f"Successfully removed {deletedCount} duplicate documents")
 
     remaining = db.users.count_documents({})
     print(f"Final count: {remaining} unique users")
@@ -113,4 +113,4 @@ if __name__ == "__main__":
     print("MongoDB Users Collection Cleaner")
     print("=" * 60)
     print()
-    clean_users_collection()
+    cleanUsersCollection()

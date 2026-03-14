@@ -31,125 +31,125 @@ accountAPI.set_position_mode(posMode="long_short_mode")
 accountAPI.set_leverage(instId=INST_ID, lever=LEVERAGE, mgnMode="isolated")
 
 
-def wait_for_order_fill(order_id):
+def waitForOrderFill(orderId):
     """ Wait until the post-only order is filled before placing TP & SL """
-    print(f"🔄 Waiting for order {order_id} to be filled...")
+    print(f"🔄 Waiting for order {orderId} to be filled...")
     while True:
-        orders = tradeAPI.get_order(instId=INST_ID, ordId=order_id)
+        orders = tradeAPI.get_order(instId=INST_ID, ordId=orderId)
         if orders["code"] == "0" and orders["data"]:
             status = orders["data"][0]["state"]
             if status == "filled":
-                print(f"✅ Order {order_id} has been filled.")
+                print(f"✅ Order {orderId} has been filled.")
                 return True
             elif status in ["canceled", "rejected"]:
-                print(f"❌ Order {order_id} was {status}. Retrying...")
+                print(f"❌ Order {orderId} was {status}. Retrying...")
                 return False
         time.sleep(1)  # Wait before checking again
 
 
-def place_tp_sl(order_side, entry_price, order_size):
+def placeTpSl(orderSide, entryPrice, orderSize):
     """ Automatically place Take Profit & Stop Loss orders as Post-Only Limit Orders """
-    if order_side == "buy":  # Long Position
-        tp_price = (entry_price * (1 + TP_PERCENT / 100))   # TP at +1.5% + 0.1
-        sl_price = (entry_price * (1 - SL_PERCENT / 100))  # SL at -0.5% - 0.1
-        tp_side, sl_side = "sell", "sell"
-    elif order_side == "sell":  # Short Position
-        tp_price = (entry_price * (1 - TP_PERCENT / 100))
-        sl_price = (entry_price * (1 + SL_PERCENT / 100))
-        tp_side, sl_side = "buy", "buy"
+    if orderSide == "buy":  # Long Position
+        tpPrice = (entryPrice * (1 + TP_PERCENT / 100))   # TP at +1.5% + 0.1
+        slPrice = (entryPrice * (1 - SL_PERCENT / 100))  # SL at -0.5% - 0.1
+        tpSide, slSide = "sell", "sell"
+    elif orderSide == "sell":  # Short Position
+        tpPrice = (entryPrice * (1 - TP_PERCENT / 100))
+        slPrice = (entryPrice * (1 + SL_PERCENT / 100))
+        tpSide, slSide = "buy", "buy"
     else:
         print("❌ Invalid order side for TP/SL.")
         return
 
-    print(f"🚀 Placing TP at {tp_price:.2f} and SL at {sl_price:.2f} for {order_size} contracts.")
+    print(f"🚀 Placing TP at {tpPrice:.2f} and SL at {slPrice:.2f} for {orderSize} contracts.")
 
     # ✅ Post-Only Take Profit Order
-    tp_order = tradeAPI.place_order(
+    tpOrder = tradeAPI.place_order(
         instId=INST_ID,
         tdMode="isolated",
-        side=tp_side,
-        posSide="long" if order_side == "buy" else "short",
+        side=tpSide,
+        posSide="long" if orderSide == "buy" else "short",
         ordType="post_only",  # Ensures Maker Fees
-        px=str(tp_price),  # TP Limit Price
-        sz=order_size,
+        px=str(tpPrice),  # TP Limit Price
+        sz=orderSize,
         reduceOnly="true"
     )
-    if tp_order["code"] == "0":
-        print(f"✅ TP Order Placed at {tp_price:.2f} USDT (Post-Only)")
+    if tpOrder["code"] == "0":
+        print(f"✅ TP Order Placed at {tpPrice:.2f} USDT (Post-Only)")
     else:
-        print(f"❌ Error placing TP: {tp_order}")
+        print(f"❌ Error placing TP: {tpOrder}")
 
     # ✅ Post-Only Stop Loss Order
-    sl_order = tradeAPI.place_order(
+    slOrder = tradeAPI.place_order(
         instId=INST_ID,
         tdMode="isolated",
-        side=sl_side,
-        posSide="long" if order_side == "buy" else "short",
+        side=slSide,
+        posSide="long" if orderSide == "buy" else "short",
         ordType="post_only",  # Ensures Maker Fees
-        px=str(sl_price),  # SL Limit Price
-        sz=order_size,
+        px=str(slPrice),  # SL Limit Price
+        sz=orderSize,
         reduceOnly="true"
     )
-    if sl_order["code"] == "0":
-        print(f"✅ SL Order Placed at {sl_price:.2f} USDT (Post-Only)")
+    if slOrder["code"] == "0":
+        print(f"✅ SL Order Placed at {slPrice:.2f} USDT (Post-Only)")
     else:
-        print(f"❌ Error placing SL: {sl_order}")
+        print(f"❌ Error placing SL: {slOrder}")
 
 
 # 🔹 Start Trading Loop
 while True:
-    mark_price_data = publicAPI.get_mark_price(instType="SWAP", instId=INST_ID)
+    markPriceData = publicAPI.get_mark_price(instType="SWAP", instId=INST_ID)
 
-    if mark_price_data["code"] == "0":
-        mark_price = float(mark_price_data["data"][0]["markPx"])
-        print(f"✅ Mark Price: {mark_price} USDT")
+    if markPriceData["code"] == "0":
+        markPrice = float(markPriceData["data"][0]["markPx"])
+        print(f"✅ Mark Price: {markPrice} USDT")
     else:
-        print(f"❌ Failed to fetch mark price: {mark_price_data}")
+        print(f"❌ Failed to fetch mark price: {markPriceData}")
         continue
 
     action = input("Enter 'a' to Buy (Long), 'd' to Sell (Short), 'q' to Quit: ").strip().lower()
 
     if action == "a":
-        buy_price = mark_price * 0.999999999  # ✅ Adjusted to prevent instant execution
-        print(f"✅ Executing Buy Post-Only Order at {buy_price:.2f}...")
-        order_result = tradeAPI.place_order(
+        buyPrice = markPrice * 0.999999999  # ✅ Adjusted to prevent instant execution
+        print(f"✅ Executing Buy Post-Only Order at {buyPrice:.2f}...")
+        orderResult = tradeAPI.place_order(
             instId=INST_ID,
             tdMode="isolated",
             side="buy",
             posSide="long",
             ordType="post_only",
-            px=str(buy_price),
+            px=str(buyPrice),
             sz=ORDER_SIZE,
             reduceOnly="false"
         )
-        if order_result["code"] == "0":
-            order_id = order_result["data"][0]["ordId"]
-            print(f"✅ Buy Order Placed. Order ID: {order_id}")
-            if wait_for_order_fill(order_id):
-                place_tp_sl("buy", buy_price, ORDER_SIZE)
+        if orderResult["code"] == "0":
+            orderId = orderResult["data"][0]["ordId"]
+            print(f"✅ Buy Order Placed. Order ID: {orderId}")
+            if waitForOrderFill(orderId):
+                placeTpSl("buy", buyPrice, ORDER_SIZE)
         else:
-            print(f"❌ Error placing buy order: {order_result}")
+            print(f"❌ Error placing buy order: {orderResult}")
 
     elif action == "d":
-        sell_price = mark_price * 1.0000000001  # ✅ Adjusted to prevent instant execution
-        print(f"✅ Executing Sell Post-Only Order at {sell_price:.2f}...")
-        order_result = tradeAPI.place_order(
+        sellPrice = markPrice * 1.0000000001  # ✅ Adjusted to prevent instant execution
+        print(f"✅ Executing Sell Post-Only Order at {sellPrice:.2f}...")
+        orderResult = tradeAPI.place_order(
             instId=INST_ID,
             tdMode="isolated",
             side="sell",
             posSide="short",
             ordType="post_only",
-            px=str(sell_price),
+            px=str(sellPrice),
             sz=ORDER_SIZE,
             reduceOnly="false"
         )
-        if order_result["code"] == "0":
-            order_id = order_result["data"][0]["ordId"]
-            print(f"✅ Sell Order Placed. Order ID: {order_id}")
-            if wait_for_order_fill(order_id):
-                place_tp_sl("sell", sell_price, ORDER_SIZE)
+        if orderResult["code"] == "0":
+            orderId = orderResult["data"][0]["ordId"]
+            print(f"✅ Sell Order Placed. Order ID: {orderId}")
+            if waitForOrderFill(orderId):
+                placeTpSl("sell", sellPrice, ORDER_SIZE)
         else:
-            print(f"❌ Error placing sell order: {order_result}")
+            print(f"❌ Error placing sell order: {orderResult}")
 
     elif action == "q":
         print("🚪 Exiting Trading Script...")
