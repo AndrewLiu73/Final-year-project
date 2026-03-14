@@ -98,7 +98,7 @@ def cleanUsersCollection():
     for dup in duplicates:
         docsToDelete = dup['docs'][1:]
         result = db.users.delete_many({"_id": {"$in": docsToDelete}})
-        deletedCount += result.deletedCount
+        deletedCount += result.deleted_count
 
     print(f"Successfully removed {deletedCount} duplicate documents")
 
