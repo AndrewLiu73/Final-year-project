@@ -26,7 +26,7 @@ class TestDrawdown:
             {"time": 2000, "closedPnl": "50"},
             {"time": 3000, "closedPnl": "75"},
         ]
-        assert scanner._calculate_drawdown(fills) == 0.0
+        assert scanner._calculateDrawdown(fills) == 0.0
 
     def test_drawdown_with_loss(self, scanner):
         """Peak 500, trough 200 — drawdown = 60%"""
@@ -35,16 +35,16 @@ class TestDrawdown:
             {"time": 2000, "closedPnl": "-300"},
             {"time": 3000, "closedPnl": "100"},
         ]
-        assert scanner._calculate_drawdown(fills) == pytest.approx(60.0, rel=0.01)
+        assert scanner._calculateDrawdown(fills) == pytest.approx(60.0, rel=0.01)
 
     def test_empty_fills(self, scanner):
         """No fills — drawdown = 0"""
-        assert scanner._calculate_drawdown([]) == 0.0
+        assert scanner._calculateDrawdown([]) == 0.0
 
     def test_single_losing_trade(self, scanner):
         """Only one losing trade — never had a positive peak, no drawdown"""
         fills = [{"time": 1000, "closedPnl": "-100"}]
-        assert scanner._calculate_drawdown(fills) == 0.0
+        assert scanner._calculateDrawdown(fills) == 0.0
 
     def test_multiple_peaks_tracks_maximum(self, scanner):
         """
@@ -57,7 +57,7 @@ class TestDrawdown:
             {"time": 3000, "closedPnl": "300"},
             {"time": 4000, "closedPnl": "-250"},
         ]
-        assert scanner._calculate_drawdown(fills) == pytest.approx(50.0, rel=0.01)
+        assert scanner._calculateDrawdown(fills) == pytest.approx(50.0, rel=0.01)
 
     def test_unsorted_fills_sorted_by_time(self, scanner):
         """Fills out of order — scanner must sort before calculating"""
@@ -67,7 +67,7 @@ class TestDrawdown:
             {"time": 2000, "closedPnl": "-300"},
         ]
         # After sort: 500 -> 200 -> 300 => 60% DD
-        assert scanner._calculate_drawdown(fills) == pytest.approx(60.0, rel=0.01)
+        assert scanner._calculateDrawdown(fills) == pytest.approx(60.0, rel=0.01)
 
     def test_full_wipeout(self, scanner):
         """Portfolio goes to zero — drawdown = 100%"""
@@ -75,7 +75,7 @@ class TestDrawdown:
             {"time": 1000, "closedPnl": "1000"},
             {"time": 2000, "closedPnl": "-1000"},
         ]
-        assert scanner._calculate_drawdown(fills) == pytest.approx(100.0, rel=0.01)
+        assert scanner._calculateDrawdown(fills) == pytest.approx(100.0, rel=0.01)
 
     def test_recovery_after_drawdown(self, scanner):
         """Drawdown then full recovery — max DD is still captured"""
@@ -85,7 +85,7 @@ class TestDrawdown:
             {"time": 3000, "closedPnl": "500"},    # recovers to 1000
             {"time": 4000, "closedPnl": "500"},    # new peak 1500
         ]
-        assert scanner._calculate_drawdown(fills) == pytest.approx(50.0, rel=0.01)
+        assert scanner._calculateDrawdown(fills) == pytest.approx(50.0, rel=0.01)
 
 
 # ── fee tier tests ────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ class TestFeeTier:
 
     def test_base_tier_at_or_above_base_rate(self, scanner):
         """Cross rate at or above base rate = tier 0"""
-        fee_schedule = {
+        feeSchedule = {
             "cross": "0.00045",
             "tiers": {
                 "vip": [
@@ -104,13 +104,13 @@ class TestFeeTier:
             }
         }
         # exactly at base rate
-        assert scanner._get_fee_tier(fee_schedule, 0.00045) == 0
+        assert scanner._getFeeTier(feeSchedule, 0.00045) == 0
         # above base rate
-        assert scanner._get_fee_tier(fee_schedule, 0.00050) == 0
+        assert scanner._getFeeTier(feeSchedule, 0.00050) == 0
 
     def test_vip_tier_1(self, scanner):
         """Cross rate below base but above first VIP threshold"""
-        fee_schedule = {
+        feeSchedule = {
             "cross": "0.00045",
             "tiers": {
                 "vip": [
@@ -119,11 +119,11 @@ class TestFeeTier:
                 ]
             }
         }
-        assert scanner._get_fee_tier(fee_schedule, 0.00042) == 1
+        assert scanner._getFeeTier(feeSchedule, 0.00042) == 1
 
     def test_vip_tier_2(self, scanner):
         """Cross rate at second VIP threshold"""
-        fee_schedule = {
+        feeSchedule = {
             "cross": "0.00045",
             "tiers": {
                 "vip": [
@@ -132,11 +132,11 @@ class TestFeeTier:
                 ]
             }
         }
-        assert scanner._get_fee_tier(fee_schedule, 0.00035) == 2
+        assert scanner._getFeeTier(feeSchedule, 0.00035) == 2
 
     def test_highest_tier_below_all_thresholds(self, scanner):
         """Cross rate below all thresholds = highest tier"""
-        fee_schedule = {
+        feeSchedule = {
             "cross": "0.00045",
             "tiers": {
                 "vip": [
@@ -145,20 +145,20 @@ class TestFeeTier:
                 ]
             }
         }
-        assert scanner._get_fee_tier(fee_schedule, 0.00010) == 2
+        assert scanner._getFeeTier(feeSchedule, 0.00010) == 2
 
     def test_empty_tiers(self, scanner):
         """No VIP tiers defined — everything is tier 0"""
-        fee_schedule = {
+        feeSchedule = {
             "cross": "0.00045",
             "tiers": {"vip": []}
         }
-        assert scanner._get_fee_tier(fee_schedule, 0.00045) == 0
+        assert scanner._getFeeTier(feeSchedule, 0.00045) == 0
 
     def test_malformed_fee_schedule_returns_0(self, scanner):
         """Corrupt data should not crash — returns 0"""
-        assert scanner._get_fee_tier({}, "not_a_number") == 0
-        assert scanner._get_fee_tier(None, 0.00045) == 0
+        assert scanner._getFeeTier({}, "not_a_number") == 0
+        assert scanner._getFeeTier(None, 0.00045) == 0
 
 
 # ── win rate logic ────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ class TestWinRate:
 
 class TestBotDetection:
     """
-    is_likely_bot = (user_cross_rate == 0.0 or user_add_rate < 0)
+    isLikelyBot = (userCrossRate == 0.0 or userAddRate < 0)
     Pure maker / rebate earners are flagged as bots.
     """
 

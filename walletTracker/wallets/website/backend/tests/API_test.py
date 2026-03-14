@@ -49,14 +49,14 @@ def section(title):
     print(f"{'=' * 60}")
 
 
-def debug_wallet_unrealized_pnl(wallet_address):
-    section(f"WALLET: {wallet_address}")
+def debugWalletUnrealizedPnl(walletAddress):
+    section(f"WALLET: {walletAddress}")
 
     # ----------------------------------------------------------------
     # 1. clearinghouseState - account value, margin, open positions
     # ----------------------------------------------------------------
     section("1. clearinghouseState")
-    data = post({"type": "clearinghouseState", "user": wallet_address})
+    data = post({"type": "clearinghouseState", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -64,28 +64,28 @@ def debug_wallet_unrealized_pnl(wallet_address):
         margin = data.get('marginSummary', {})
         print(f"\n  marginSummary keys: {list(margin.keys())}")
 
-        asset_positions = data.get('assetPositions', [])
-        print(f"  open positions: {len(asset_positions)}")
+        assetPositions = data.get('assetPositions', [])
+        print(f"  open positions: {len(assetPositions)}")
 
-        total_unrealized = 0
-        for idx, pos in enumerate(asset_positions):
-            pos_data = pos.get('position', {})
-            coin     = pos_data.get('coin', 'UNKNOWN')
-            size     = float(pos_data.get('szi', 0))
-            upnl     = pos_data.get('unrealizedPnl')
+        totalUnrealized = 0
+        for idx, pos in enumerate(assetPositions):
+            posData  = pos.get('position', {})
+            coin     = posData.get('coin', 'UNKNOWN')
+            size     = float(posData.get('szi', 0))
+            upnl     = posData.get('unrealizedPnl')
 
             if size == 0:
                 continue
 
             print(f"\n  position {idx + 1}: {coin}")
             print(f"    size:          {size}")
-            print(f"    entry_px:      {pos_data.get('entryPx')}")
+            print(f"    entry_px:      {posData.get('entryPx')}")
             print(f"    unrealizedPnl: {upnl}")
 
             if upnl is not None:
-                total_unrealized += float(upnl)
+                totalUnrealized += float(upnl)
 
-        print(f"\n  total unrealized PnL (summed from positions): ${total_unrealized:.2f}")
+        print(f"\n  total unrealized PnL (summed from positions): ${totalUnrealized:.2f}")
 
     time.sleep(DELAY)
 
@@ -93,17 +93,17 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 2. portfolio - all-time realized PnL, volume, PnL history
     # ----------------------------------------------------------------
     section("2. portfolio")
-    data = post({"type": "portfolio", "user": wallet_address})
+    data = post({"type": "portfolio", "user": walletAddress})
 
     if data:
         for period, stats in data:
             print(f"\n  period: {period}")
             if isinstance(stats, dict):
                 print(f"    vlm (volume): {stats.get('vlm')}")
-                pnl_hist = stats.get('pnlHistory', [])
-                if pnl_hist:
-                    print(f"    latest realized PnL: {pnl_hist[-1][1]}")
-                    print(f"    pnlHistory entries:  {len(pnl_hist)}")
+                pnlHist = stats.get('pnlHistory', [])
+                if pnlHist:
+                    print(f"    latest realized PnL: {pnlHist[-1][1]}")
+                    print(f"    pnlHistory entries:  {len(pnlHist)}")
 
     time.sleep(DELAY)
 
@@ -111,7 +111,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 3. openOrders
     # ----------------------------------------------------------------
     section("3. openOrders")
-    data = post({"type": "openOrders", "user": wallet_address})
+    data = post({"type": "openOrders", "user": walletAddress})
 
     if data is not None:
         print(f"  open orders count: {len(data)}")
@@ -124,7 +124,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 4. frontendOpenOrders
     # ----------------------------------------------------------------
     section("4. frontendOpenOrders")
-    data = post({"type": "frontendOpenOrders", "user": wallet_address})
+    data = post({"type": "frontendOpenOrders", "user": walletAddress})
 
     if data is not None:
         print(f"  frontend open orders count: {len(data)}")
@@ -137,7 +137,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 5. userFills
     # ----------------------------------------------------------------
     section("5. userFills (latest batch)")
-    data = post({"type": "userFills", "user": wallet_address})
+    data = post({"type": "userFills", "user": walletAddress})
 
     if data is not None:
         print(f"  fills returned: {len(data)}")
@@ -151,13 +151,13 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 6. userFillsByTime (last 7 days)
     # ----------------------------------------------------------------
     section("6. userFillsByTime (last 7 days)")
-    now_ms  = int(time.time() * 1000)
-    week_ms = 7 * 24 * 60 * 60 * 1000
+    nowMs  = int(time.time() * 1000)
+    weekMs = 7 * 24 * 60 * 60 * 1000
     data = post({
         "type":      "userFillsByTime",
-        "user":      wallet_address,
-        "startTime": now_ms - week_ms,
-        "endTime":   now_ms
+        "user":      walletAddress,
+        "startTime": nowMs - weekMs,
+        "endTime":   nowMs
     })
 
     if data is not None:
@@ -169,7 +169,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 7. historicalOrders
     # ----------------------------------------------------------------
     section("7. historicalOrders")
-    data = post({"type": "historicalOrders", "user": wallet_address})
+    data = post({"type": "historicalOrders", "user": walletAddress})
 
     if data is not None:
         print(f"  historical orders count: {len(data)}")
@@ -182,7 +182,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 8. userFees
     # ----------------------------------------------------------------
     section("8. userFees")
-    data = post({"type": "userFees", "user": wallet_address})
+    data = post({"type": "userFees", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -193,7 +193,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 9. userRateLimit
     # ----------------------------------------------------------------
     section("9. userRateLimit")
-    data = post({"type": "userRateLimit", "user": wallet_address})
+    data = post({"type": "userRateLimit", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -205,7 +205,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # ----------------------------------------------------------------
     section("10. subAccounts")
     time.sleep(3)  # buffer - this endpoint is more sensitive to burst
-    data = post({"type": "subAccounts", "user": wallet_address})
+    data = post({"type": "subAccounts", "user": walletAddress})
 
     if data is not None:
         print(f"  sub-accounts: {len(data)}")
@@ -220,7 +220,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 11. userVaultEquities
     # ----------------------------------------------------------------
     section("11. userVaultEquities")
-    data = post({"type": "userVaultEquities", "user": wallet_address})
+    data = post({"type": "userVaultEquities", "user": walletAddress})
 
     if data is not None:
         print(f"  vault positions: {len(data)}")
@@ -233,17 +233,17 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 12. userRole - subAccount, master, vault leader, etc
     # ----------------------------------------------------------------
     section("12. userRole")
-    data = post({"type": "userRole", "user": wallet_address})
+    data = post({"type": "userRole", "user": walletAddress})
 
     if data:
         role = data.get('role', 'unknown')
         print(f"  role: {role}")
 
-        role_data = data.get('data', {})
-        if role == 'subAccount' and role_data:
-            print(f"  master wallet: {role_data.get('master')}")
-        elif role == 'vaultLeader' and role_data:
-            print(f"  vault address: {role_data.get('vault')}")
+        roleData = data.get('data', {})
+        if role == 'subAccount' and roleData:
+            print(f"  master wallet: {roleData.get('master')}")
+        elif role == 'vaultLeader' and roleData:
+            print(f"  vault address: {roleData.get('vault')}")
 
         print(f"\n  full response: {json.dumps(data, indent=2)}")
 
@@ -253,7 +253,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 13. referral
     # ----------------------------------------------------------------
     section("13. referral")
-    data = post({"type": "referral", "user": wallet_address})
+    data = post({"type": "referral", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -264,7 +264,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 14. spotClearinghouseState
     # ----------------------------------------------------------------
     section("14. spotClearinghouseState")
-    data = post({"type": "spotClearinghouseState", "user": wallet_address})
+    data = post({"type": "spotClearinghouseState", "user": walletAddress})
 
     if data:
         balances = data.get('balances', [])
@@ -278,7 +278,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 15. twapSliceFills - 422 means wallet never used TWAP, skip silently
     # ----------------------------------------------------------------
     section("15. twapSliceFills")
-    data = post({"type": "twapSliceFills", "user": wallet_address})
+    data = post({"type": "twapSliceFills", "user": walletAddress})
 
     if data is not None:
         print(f"  twap slice fills: {len(data)}")
@@ -291,7 +291,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 16. stakingSummary - 422 means wallet has not staked HYPE
     # ----------------------------------------------------------------
     section("16. stakingSummary")
-    data = post({"type": "stakingSummary", "user": wallet_address})
+    data = post({"type": "stakingSummary", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -304,7 +304,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 17. delegations
     # ----------------------------------------------------------------
     section("17. delegations")
-    data = post({"type": "delegations", "user": wallet_address})
+    data = post({"type": "delegations", "user": walletAddress})
 
     if data is not None:
         print(f"  delegations: {len(data)}")
@@ -319,7 +319,7 @@ def debug_wallet_unrealized_pnl(wallet_address):
     # 18. stakingRewards - 422 means wallet has not staked HYPE
     # ----------------------------------------------------------------
     section("18. stakingRewards")
-    data = post({"type": "stakingRewards", "user": wallet_address})
+    data = post({"type": "stakingRewards", "user": walletAddress})
 
     if data:
         print(json.dumps(data, indent=2))
@@ -329,31 +329,31 @@ def debug_wallet_unrealized_pnl(wallet_address):
     time.sleep(DELAY)
 
 
-def check_database_sample():
+def checkDatabaseSample():
     section("CHECKING DATABASE")
 
-    mongo_uri = os.getenv('MONGO_URI')
-    if not mongo_uri:
+    mongoUri = os.getenv('MONGO_URI')
+    if not mongoUri:
         print("  MONGO_URI not found in .env")
         return
 
     try:
-        client = MongoClient(mongo_uri)
+        client = MongoClient(mongoUri)
         db     = client['hyperliquid']
 
         total          = db.profitability_metrics.count_documents({})
-        with_positions = db.profitability_metrics.count_documents({"open_positions_count": {"$gt": 0}})
-        zero_upnl      = db.profitability_metrics.count_documents({
+        withPositions  = db.profitability_metrics.count_documents({"open_positions_count": {"$gt": 0}})
+        zeroUpnl       = db.profitability_metrics.count_documents({
             "open_positions_count": {"$gt": 0},
             "unrealized_pnl_usdc": 0
         })
 
         print(f"  total records:           {total}")
-        print(f"  records with positions:  {with_positions}")
-        print(f"  positions but zero upnl: {zero_upnl}")
+        print(f"  records with positions:  {withPositions}")
+        print(f"  positions but zero upnl: {zeroUpnl}")
 
-        if zero_upnl > 0:
-            pct = round(zero_upnl / with_positions * 100, 1)
+        if zeroUpnl > 0:
+            pct = round(zeroUpnl / withPositions * 100, 1)
             print(f"  ({pct}% of wallets with positions have stale zero upnl - will be fixed on next scan cycle)")
 
         sample = db.profitability_metrics.find_one({"open_positions_count": {"$gt": 0}})
@@ -374,7 +374,7 @@ def check_database_sample():
 
 
 if __name__ == "__main__":
-    test_wallet = "0x200000000000000000000000000000000000010c"
+    testWallet = "0x200000000000000000000000000000000000010c"
 
-    debug_wallet_unrealized_pnl(test_wallet)
-    check_database_sample()
+    debugWalletUnrealizedPnl(testWallet)
+    checkDatabaseSample()
