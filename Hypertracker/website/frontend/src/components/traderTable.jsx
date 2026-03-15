@@ -1,120 +1,88 @@
 import SortIndicator from './sortIndicator';
 import { formatBalance } from '../utils/formatters';
 
+const COLUMNS = [
+  { key: 'balance',    label: 'Balance',      col: 'colBalance'    },
+  { key: 'pnl',        label: 'All-Time PnL', col: 'colPnl'        },
+  { key: 'openTrades', label: 'Open Trades',  col: 'colOpenTrades' },
+  { key: 'winrate',    label: 'Winrate',      col: 'colWinrate'    },
+  { key: 'drawdown',   label: 'Max DD',       col: 'colDrawdown'   },
+];
+
 export default function TraderTable({
-  traders,
-  sortBy,
-  sortDirection,
-  handleSort,
-  onWalletClick,
-  actionLabel = 'Watch',
-  onAction,
-  actionIcon = '★',
-  actionColor = '#5865f2',
-  styles,
-  headerClassName,
-  rowClassName,
-  footer,
+  traders, sortBy, sortDirection, handleSort, onWalletClick,
+  actionLabel = 'Watch', onAction, actionIcon = '★', actionColor = '#5865f2',
+  styles, headerClassName, rowClassName, footer,
 }) {
   return (
     <div className={styles.tableContainer}>
-      {/* header row */}
       <div className={headerClassName || styles.tableHeader}>
         <div className={styles.colWallet}>Wallet</div>
-        <div className={`${styles.colBalance} ${styles.sortable}`} onClick={() => handleSort('balance')}>
-          Balance <SortIndicator sortBy={sortBy} column="balance" sortDirection={sortDirection} className={styles.sortIndicator} />
-        </div>
-        <div className={`${styles.colPnl} ${styles.sortable}`} onClick={() => handleSort('pnl')}>
-          All-Time PnL <SortIndicator sortBy={sortBy} column="pnl" sortDirection={sortDirection} className={styles.sortIndicator} />
-        </div>
-        <div className={`${styles.colOpenTrades} ${styles.sortable}`} onClick={() => handleSort('openTrades')}>
-          Open Trades <SortIndicator sortBy={sortBy} column="openTrades" sortDirection={sortDirection} className={styles.sortIndicator} />
-        </div>
-        <div className={`${styles.colWinrate} ${styles.sortable}`} onClick={() => handleSort('winrate')}>
-          Winrate <SortIndicator sortBy={sortBy} column="winrate" sortDirection={sortDirection} className={styles.sortIndicator} />
-        </div>
-        <div className={`${styles.colDrawdown} ${styles.sortable}`} onClick={() => handleSort('drawdown')}>
-          Max DD <SortIndicator sortBy={sortBy} column="drawdown" sortDirection={sortDirection} className={styles.sortIndicator} />
-        </div>
+        {COLUMNS.map(({ key, label, col }) => (
+          <div key={key} className={`${styles[col]} ${styles.sortable}`} onClick={() => handleSort(key)}>
+            {label} <SortIndicator sortBy={sortBy} column={key} sortDirection={sortDirection} className={styles.sortIndicator} />
+          </div>
+        ))}
         <div className={styles.colWatch}>{actionLabel}</div>
       </div>
 
-      {/* rows */}
       <div className={styles.tableBody}>
         {traders.length > 0 ? (
           <>
-            {traders.map((trader, index) => {
-              const profitColor = trader.isProfitable ? '#3ba55d' : '#ed4245';
+            {traders.map((t, i) => {
+              const c = t.isProfitable ? '#3ba55d' : '#ed4245';
               return (
-                <div key={`${trader.wallet}-${index}`} className={rowClassName || styles.tableRow}>
+                <div key={`${t.wallet}-${i}`} className={rowClassName || styles.tableRow}>
                   <div className={styles.colWallet}>
                     <div className={styles.walletCell}>
-                      <div className={styles.statusDot} style={{ background: profitColor }} />
-                      <span
-                        className={styles.walletText}
-                        title={trader.wallet}
-                        onClick={() => onWalletClick(trader.wallet)}
-                      >
-                        {trader.wallet.slice(0, 6)}...{trader.wallet.slice(-4)}
+                      <div className={styles.statusDot} style={{ background: c }} />
+                      <span className={styles.walletText} title={t.wallet} onClick={() => onWalletClick(t.wallet)}>
+                        {t.wallet.slice(0, 6)}...{t.wallet.slice(-4)}
                       </span>
                     </div>
                   </div>
 
                   <div className={styles.colBalance}>
-                    <span className={styles.valueText}>{formatBalance(trader.currentBalance)}</span>
+                    <span className={styles.valueText}>{formatBalance(t.currentBalance)}</span>
                   </div>
 
                   <div className={styles.colPnl}>
                     <div className={styles.pnlCell}>
-                      <span className={styles.pnlValue} style={{ color: profitColor }}>
-                        {trader.gainDollar > 0 ? '+' : ''}{formatBalance(trader.gainDollar)}
+                      <span className={styles.pnlValue} style={{ color: c }}>
+                        {t.gainDollar > 0 ? '+' : ''}{formatBalance(t.gainDollar)}
                       </span>
-                      <span className={styles.pnlPercent} style={{ color: profitColor }}>
-                        ({trader.gainPercent > 0 ? '+' : ''}{trader.gainPercent?.toFixed(1)}%)
+                      <span className={styles.pnlPercent} style={{ color: c }}>
+                        ({t.gainPercent > 0 ? '+' : ''}{t.gainPercent?.toFixed(1)}%)
                       </span>
                     </div>
                   </div>
 
                   <div className={styles.colOpenTrades}>
-                    <span className={styles.valueText}>{trader.openPositionsCount || 0}</span>
+                    <span className={styles.valueText}>{t.openPositionsCount || 0}</span>
                   </div>
 
                   <div className={styles.colWinrate}>
-                    <span className={styles.valueText}>
-                      {trader.winrate ? `${trader.winrate.toFixed(1)}%` : '-'}
-                    </span>
+                    <span className={styles.valueText}>{t.winrate ? `${t.winrate.toFixed(1)}%` : '-'}</span>
                   </div>
 
                   <div className={styles.colDrawdown}>
-                    <span className={styles.valueText}>
-                      {trader.maxDrawdown ? `${trader.maxDrawdown.toFixed(1)}%` : '-'}
-                    </span>
+                    <span className={styles.valueText}>{t.maxDrawdown ? `${t.maxDrawdown.toFixed(1)}%` : '-'}</span>
                   </div>
 
                   <div className={styles.colWatch}>
-                    <span
-                      className={styles.watchStar}
-                      onClick={() => onAction(trader.wallet)}
-                      title={actionLabel}
-                      style={{ color: actionColor }}
-                    >
+                    <span className={styles.watchStar} onClick={() => onAction(t.wallet)} title={actionLabel} style={{ color: actionColor }}>
                       {actionIcon}
                     </span>
                   </div>
                 </div>
               );
             })}
-
-            {/* page-specific footer (load more button, end message, etc.) */}
             {footer}
           </>
         ) : (
-          <div className={styles.emptyState}>
-            <p>No traders match your filters</p>
-          </div>
+          <div className={styles.emptyState}><p>No traders match your filters</p></div>
         )}
       </div>
     </div>
   );
 }
-

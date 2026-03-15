@@ -196,7 +196,7 @@ export default function Watchlist() {
                         {tgSaved ? 'Saved' : 'Save'}
                     </button>
                     <span style={{ color: '#72767d', fontSize: '11px' }}>
-                        Message @HyperTrack_Alert_Bot on Telegram to get your ID, then start a chat with @your_bot_name
+                        Message @userinfobot on Telegram with /start to get your ID, then start a chat with @HyperTrack_Alert_Bot
                     </span>
                 </div>
 

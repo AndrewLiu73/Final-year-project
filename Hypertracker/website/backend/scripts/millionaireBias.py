@@ -7,170 +7,95 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
-
-MONGO_URI              = os.getenv("MONGO_URI")
-HYPERLIQUID_API        = "https://api.hyperliquid.xyz/info"
-TARGET_COINS           = ["BTC", "ETH", "HYPE"]
-MAX_RETRIES            = 3
-PARALLEL               = 10
-RATE_LIMIT_DELAY       = 0.10
+MONGO_URI     = os.getenv("MONGO_URI")
+HL_API        = "https://api.hyperliquid.xyz/info"
+TARGET_COINS  = ["BTC", "ETH", "HYPE"]
+MAX_RETRIES   = 3
+PARALLEL      = 10
 
 
-async def fetch_millionaires_wallets():
-    client = AsyncIOMotorClient(MONGO_URI)
-    db     = client["hyperliquid"]
-    coll   = db["millionaires"]
-    docs   = await coll.find({}, {"_id": 0, "wallet": 1}).to_list(None)
+def db():
+    return AsyncIOMotorClient(MONGO_URI)["hyperliquid"]
+
+
+async def fetch_wallets():
+    docs = await db()["millionaires"].find({}, {"_id": 0, "wallet": 1}).to_list(None)
     return [d["wallet"] for d in docs if "wallet" in d]
 
 
 async def fetch_positions(session, wallet):
     for attempt in range(MAX_RETRIES):
-        try:
-            async with session.post(
-                HYPERLIQUID_API,
-                json={"type": "clearinghouseState", "user": wallet}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("assetPositions", [])
-                elif resp.status == 422:
-                    print(f"[{wallet}] Wallet not supported or invalid (422)")
-                    return []
-                else:
-                    print(f"[{wallet}] Error: {resp.status}")
-        except Exception as e:
-            print(f"[{wallet}] Exception: {e}")
-
-        wait_time = 2 ** attempt
-        print(f"[{wallet}] Retry {attempt + 1}/{MAX_RETRIES} in {wait_time}s...")
-        await asyncio.sleep(wait_time)
-
-    print(f"[{wallet}] Failed after {MAX_RETRIES} attempts.")
+        async with session.post(HL_API, json={"type": "clearinghouseState", "user": wallet}) as r:
+            if r.status == 200:
+                return (await r.json()).get("assetPositions", [])
+            if r.status == 422:
+                return []
+        await asyncio.sleep(2 ** attempt)
     return []
 
 
-async def fetch_all_positions(wallets, session, parallel=PARALLEL):
-    sema = asyncio.Semaphore(parallel)
-
-    async def worker(wallet):
+async def fetch_all(wallets, session):
+    sema = asyncio.Semaphore(PARALLEL)
+    async def worker(w):
         async with sema:
-            positions = await fetch_positions(session, wallet)
-            return wallet, positions
-
-    tasks   = [worker(w) for w in wallets]
-    results = await asyncio.gather(*tasks)
-    return dict(results)
+            return w, await fetch_positions(session, w)
+    return dict(await asyncio.gather(*[worker(w) for w in wallets]))
 
 
-def summarize_bias(wallet_positions):
-    bias_qty   = {coin: Counter() for coin in TARGET_COINS}
-    bias_val   = {coin: Counter() for coin in TARGET_COINS}
+def summarize(wallet_positions):
+    bias_val   = {c: Counter() for c in TARGET_COINS}
     per_wallet = {}
 
     for wallet, positions in wallet_positions.items():
-        w_qty = {coin: Counter() for coin in TARGET_COINS}
-        w_val = {coin: Counter() for coin in TARGET_COINS}
-
-        for pos_data in positions:
-            pos  = pos_data.get("position", {})
+        w_val = {c: Counter() for c in TARGET_COINS}
+        for pd in positions:
+            pos  = pd.get("position", {})
             coin = pos.get("coin")
             szi  = float(pos.get("szi", 0))
             val  = float(pos.get("positionValue", 0))
-
-            if szi == 0 or val == 0 or coin not in TARGET_COINS:
+            if not szi or not val or coin not in TARGET_COINS:
                 continue
-
             side = "B" if szi > 0 else "A"
-            bias_qty[coin][side] += abs(szi)
             bias_val[coin][side] += val
-            w_qty[coin][side]    += abs(szi)
             w_val[coin][side]    += val
 
         per_wallet[wallet] = {
-            coin: {
-                "long_sz":  w_qty[coin].get("B", 0.0),
-                "short_sz": w_qty[coin].get("A", 0.0),
-                "long":     w_val[coin].get("B", 0.0),
-                "short":    w_val[coin].get("A", 0.0),
-            }
-            for coin in TARGET_COINS
+            c: {"long": w_val[c].get("B", 0.0), "short": w_val[c].get("A", 0.0)}
+            for c in TARGET_COINS
         }
 
     aggregate = {}
     for coin in TARGET_COINS:
-        long_v  = bias_val[coin].get("B", 0.0)
-        short_v = bias_val[coin].get("A", 0.0)
-        total_v = long_v + short_v
-
-        long_pct  = (long_v  / total_v * 100) if total_v > 0 else 0
-        short_pct = (short_v / total_v * 100) if total_v > 0 else 0
-        direction = (
-            "Long"    if long_v > short_v else
-            "Short"   if short_v > long_v else
-            "Neutral"
-        )
-
-        long_wallets  = sum(1 for w in per_wallet.values() if w[coin]["long"]  > 0)
-        short_wallets = sum(1 for w in per_wallet.values() if w[coin]["short"] > 0)
-        total_wallets = long_wallets + short_wallets
-
+        lv, sv  = bias_val[coin].get("B", 0.0), bias_val[coin].get("A", 0.0)
+        total   = lv + sv
         aggregate[coin] = {
-            "long":          long_v,
-            "short":         short_v,
-            "long_pct":      long_pct,
-            "short_pct":     short_pct,
-            "direction":     direction,
-            "long_wallets":  long_wallets,
-            "short_wallets": short_wallets,
-            "total_wallets": total_wallets,
+            "long":          lv,
+            "short":         sv,
+            "long_pct":      lv / total * 100 if total else 0,
+            "short_pct":     sv / total * 100 if total else 0,
+            "direction":     "Long" if lv > sv else "Short" if sv > lv else "Neutral",
+            "long_wallets":  sum(1 for w in per_wallet.values() if w[coin]["long"]  > 0),
+            "short_wallets": sum(1 for w in per_wallet.values() if w[coin]["short"] > 0),
         }
 
-    return {
-        "aggregate": aggregate,
-        "per_wallet": per_wallet,
-        "timestamp":  datetime.now(timezone.utc).isoformat()
-    }
-
-
-async def save_bias_to_mongo(bias_summary):
-    client = AsyncIOMotorClient(MONGO_URI)
-    db     = client["hyperliquid"]
-    coll   = db["bias_summaries"]
-    await coll.insert_one(bias_summary)
+    return {"aggregate": aggregate, "per_wallet": per_wallet, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 async def main():
     while True:
-        try:
-            print("Fetching latest wallet positions and computing bias summary...")
-            wallets = await fetch_millionaires_wallets()
+        wallets = await fetch_wallets()
+        async with aiohttp.ClientSession() as session:
+            summary = summarize(await fetch_all(wallets, session))
 
-            async with aiohttp.ClientSession() as session:
-                wallet_positions = await fetch_all_positions(wallets, session, parallel=PARALLEL)
+        await db()["bias_summaries"].insert_one(summary)
 
-            bias_summary = summarize_bias(wallet_positions)
-            await save_bias_to_mongo(bias_summary)
+        for coin, s in summary["aggregate"].items():
+            print(f"{coin}: {s['direction']} | Long: ${s['long']:.2f} ({s['long_pct']:.1f}%) [{s['long_wallets']}w] | "
+                  f"Short: ${s['short']:.2f} ({s['short_pct']:.1f}%) [{s['short_wallets']}w]")
 
-            print(f"Bias summary saved at {bias_summary['timestamp']}")
-            for coin, stats in bias_summary["aggregate"].items():
-                print(
-                    f"{coin}: {stats['direction']} | "
-                    f"Long: ${stats['long']:.2f} ({stats['long_pct']:.1f}%) "
-                    f"[{stats['long_wallets']} wallets] | "
-                    f"Short: ${stats['short']:.2f} ({stats['short_pct']:.1f}%) "
-                    f"[{stats['short_wallets']} wallets]"
-                )
-
-            print("Next update in 24 hours")
-            await asyncio.sleep(24 * 60 * 60)
-
-        except Exception as e:
-            print(f"[ERROR] {e} -- sleeping 2 minutes before retry")
-            await asyncio.sleep(120)
+        await asyncio.sleep(24 * 60 * 60)
 
 
 if __name__ == "__main__":

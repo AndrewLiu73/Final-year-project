@@ -2,115 +2,85 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatBalance } from '../utils/formatters';
 import styles from './openPositions.module.css';
-
-// shared hook + component so sorting isn't hand-rolled on every page
 import useSort from '../hooks/useSort';
 import SortIndicator from '../components/sortIndicator';
 
-const REFRESH_INTERVAL = 30_000; // 30s — backend cache is 30s anyway
+const REFRESH_INTERVAL = 30_000;
+
+const SORT_COLS = [
+  { key: 'size',           label: 'Size'       },
+  { key: 'notional_usd',   label: 'Notional'   },
+  { key: 'unrealized_pnl', label: 'uPnL'       },
+  { key: 'account_value',  label: 'Acct Value' },
+];
 
 export default function OpenPositionsPage() {
   const navigate = useNavigate();
-
-  // data
-  const [positions, setPositions] = useState([]);
-  const [concentration, setConcentration] = useState([]);
-  const [pagination, setPagination] = useState({ total_count: 0, unique_wallets: 0, page: 1, page_size: 50, has_more: false });
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(null);
-
-  // filters
-  const [assetFilter, setAssetFilter] = useState('');
+  const [positions,    setPositions]    = useState([]);
+  const [concentration,setConcentration]= useState([]);
+  const [pagination,   setPagination]   = useState({ total_count: 0, unique_wallets: 0, page: 1, page_size: 50, has_more: false });
+  const [loading,      setLoading]      = useState(true);
+  const [lastUpdate,   setLastUpdate]   = useState(null);
+  const [assetFilter,     setAssetFilter]     = useState('');
   const [directionFilter, setDirectionFilter] = useState('');
-  // useSort instead of manual state — same hook the other pages use
   const { sortBy, sortDirection, handleSort } = useSort('notional_usd', 'desc');
-
   const abortRef = useRef(null);
 
-  // ── fetch positions ──
   const fetchPositions = useCallback(async (page = 1, append = false) => {
-    if (abortRef.current) abortRef.current.abort();
+    abortRef.current?.abort();
     abortRef.current = new AbortController();
-
     try {
-      const params = new URLSearchParams({
-
-        sort_by: sortBy,
-        sort_direction: sortDirection,
-        page: String(page),
-        page_size: '50',
-      });
-      if (assetFilter) params.append('asset', assetFilter);
+      const params = new URLSearchParams({ sort_by: sortBy, sort_direction: sortDirection, page: String(page), page_size: '50' });
+      if (assetFilter)     params.append('asset',     assetFilter);
       if (directionFilter) params.append('direction', directionFilter);
-
-      const res = await fetch(`http://localhost:8000/api/large-positions?${params}`, { signal: abortRef.current.signal });
-      const json = await res.json();
-
+      const json = await fetch(`http://localhost:8000/api/large-positions?${params}`, { signal: abortRef.current.signal }).then(r => r.json());
       setPositions(prev => append ? [...prev, ...json.data] : json.data);
       setPagination(json.pagination);
       setLastUpdate(new Date());
     } catch (err) {
       if (err.name !== 'AbortError') console.error('fetch positions failed:', err);
     }
-  }, [ assetFilter, directionFilter, sortBy, sortDirection]);
+  }, [assetFilter, directionFilter, sortBy, sortDirection]);
 
-  // ── fetch concentration ──
   const fetchConcentration = useCallback(async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/asset-concentration`);
-      const json = await res.json();
-      setConcentration(json);
-    } catch (err) {
-      console.error('fetch concentration failed:', err);
-    }
+      setConcentration(await fetch('http://localhost:8000/api/asset-concentration').then(r => r.json()));
+    } catch (err) { console.error('fetch concentration failed:', err); }
   }, []);
 
-  // initial load + whenever filters change
   useEffect(() => {
     setLoading(true);
     Promise.all([fetchPositions(1), fetchConcentration()]).finally(() => setLoading(false));
   }, [fetchPositions, fetchConcentration]);
 
-  // auto-refresh
   useEffect(() => {
-    const id = setInterval(() => {
-      fetchPositions(1);
-      fetchConcentration();
-    }, REFRESH_INTERVAL);
+    const id = setInterval(() => { fetchPositions(1); fetchConcentration(); }, REFRESH_INTERVAL);
     return () => clearInterval(id);
   }, [fetchPositions, fetchConcentration]);
 
+  const stats = useMemo(() => ({
+    totalNotional: positions.reduce((s, p) => s + (p.notional_usd    || 0), 0),
+    totalUpnl:     positions.reduce((s, p) => s + (p.unrealized_pnl  || 0), 0),
+    longs:         positions.filter(p => p.direction === 'LONG').length,
+    shorts:        positions.filter(p => p.direction === 'SHORT').length,
+    total:         pagination.total_count,
+    uniqueWallets: pagination.unique_wallets,
+  }), [positions, pagination.total_count, pagination.unique_wallets]);
 
-  // ── summary stats ──
-  const stats = useMemo(() => {
-    const totalNotional = positions.reduce((s, p) => s + (p.notional_usd || 0), 0);
-    const totalUpnl = positions.reduce((s, p) => s + (p.unrealized_pnl || 0), 0);
-    const longs = positions.filter(p => p.direction === 'LONG').length;
-    const shorts = positions.filter(p => p.direction === 'SHORT').length;
-    return {
-      totalNotional, totalUpnl, longs, shorts,
-      total: pagination.total_count,
-      uniqueWallets: pagination.unique_wallets,
-    };
-  }, [positions, pagination.total_count, pagination.unique_wallets]);
+  if (loading) return <div className={styles.loadingState}><div className={styles.spinner} /><span>Loading open positions...</span></div>;
 
-  // ── loading state ──
-  if (loading) {
-    return (
-      <div className={styles.loadingState}>
-        <div className={styles.spinner} />
-        <span>Loading open positions...</span>
-      </div>
-    );
-  }
-
-  // ── top concentration assets for the dropdown ──
-  const topAssets = concentration.slice(0, 30).map(c => c.asset);
+  const STAT_ROWS = [
+    ['Positions',      stats.total.toLocaleString(),          null                          ],
+    ['Unique Wallets', stats.uniqueWallets.toLocaleString(),  null                          ],
+    ['Longs',          stats.longs.toLocaleString(),          styles.statValueGreen         ],
+    ['Shorts',         stats.shorts.toLocaleString(),         styles.statValueRed           ],
+    ['Notional',       formatBalance(stats.totalNotional),    null                          ],
+    ['Total uPnL',     formatBalance(stats.totalUpnl),        stats.totalUpnl >= 0 ? styles.statValueGreen : styles.statValueRed],
+  ];
 
   return (
     <div className={styles.container}>
-
-      {/* ── Sidebar ── */}
+      {/* Sidebar */}
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <h2>Filters</h2>
@@ -118,78 +88,44 @@ export default function OpenPositionsPage() {
         </div>
 
         <div className={styles.filterSection}>
-          <label className={styles.filterLabel}>
-            <span className={styles.labelText}>Asset</span>
-            <select
-              value={assetFilter}
-              onChange={e => setAssetFilter(e.target.value)}
-              className={styles.discordSelect}
-            >
-              <option value="">All assets</option>
-              {topAssets.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </label>
-
-          <label className={styles.filterLabel}>
-            <span className={styles.labelText}>Direction</span>
-            <select
-              value={directionFilter}
-              onChange={e => setDirectionFilter(e.target.value)}
-              className={styles.discordSelect}
-            >
-              <option value="">All</option>
-              <option value="LONG">Long only</option>
-              <option value="SHORT">Short only</option>
-            </select>
-          </label>
+          {[
+            { label: 'Asset', value: assetFilter, set: setAssetFilter,
+              options: [['', 'All assets'], ...concentration.slice(0, 30).map(c => [c.asset, c.asset])] },
+            { label: 'Direction', value: directionFilter, set: setDirectionFilter,
+              options: [['', 'All'], ['LONG', 'Long only'], ['SHORT', 'Short only']] },
+          ].map(({ label, value, set, options }) => (
+            <label key={label} className={styles.filterLabel}>
+              <span className={styles.labelText}>{label}</span>
+              <select value={value} onChange={e => set(e.target.value)} className={styles.discordSelect}>
+                {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
+          ))}
         </div>
 
         <div className={styles.divider} />
 
-        {/* summary stats */}
         <div className={styles.statsPanel}>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Positions</span>
-            <span className={styles.statValue}>{stats.total.toLocaleString()}</span>
-          </div>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Unique Wallets</span>
-            <span className={styles.statValue}>{stats.uniqueWallets.toLocaleString()}</span>
-          </div>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Longs</span>
-            <span className={styles.statValueGreen}>{stats.longs.toLocaleString()}</span>
-          </div>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Shorts</span>
-            <span className={styles.statValueRed}>{stats.shorts.toLocaleString()}</span>
-          </div>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Notional</span>
-            <span className={styles.statValue}>{formatBalance(stats.totalNotional)}</span>
-          </div>
-          <div className={styles.statItem}>
-            <span className={styles.statLabel}>Total uPnL</span>
-            <span className={stats.totalUpnl >= 0 ? styles.statValueGreen : styles.statValueRed}>
-              {formatBalance(stats.totalUpnl)}
-            </span>
-          </div>
+          {STAT_ROWS.map(([label, value, cls]) => (
+            <div key={label} className={styles.statItem}>
+              <span className={styles.statLabel}>{label}</span>
+              <span className={cls || styles.statValue}>{value}</span>
+            </div>
+          ))}
         </div>
 
         <div className={styles.divider} />
 
-        {/* concentration mini-bars */}
         <div className={styles.concentrationSection}>
           <div className={styles.concentrationTitle}>Asset Concentration</div>
           <div className={styles.concentrationList}>
             {concentration.slice(0, 12).map(c => {
-              const total = c.longs + c.shorts;
-              const longPct = total > 0 ? (c.longs / total) * 100 : 50;
+              const longPct = (c.longs + c.shorts) > 0 ? (c.longs / (c.longs + c.shorts)) * 100 : 50;
               return (
                 <div key={c.asset} className={styles.concRow}>
                   <span className={styles.concAsset}>{c.asset}</span>
                   <div className={styles.concBar}>
-                    <div className={styles.concLong} style={{ width: `${longPct}%` }} />
+                    <div className={styles.concLong}  style={{ width: `${longPct}%` }} />
                     <div className={styles.concShort} style={{ width: `${100 - longPct}%` }} />
                   </div>
                   <span className={styles.concRatio}>
@@ -203,43 +139,29 @@ export default function OpenPositionsPage() {
         </div>
       </div>
 
-      {/* ── Main ── */}
+      {/* Main */}
       <div className={styles.mainContent}>
         <div className={styles.channelHeader}>
           <div className={styles.channelInfo}>
             <span className={styles.channelIcon}>#</span>
             <h1 className={styles.channelName}>open-positions</h1>
-            <span className={styles.channelMeta}>
-              {stats.total.toLocaleString()} positions from {stats.uniqueWallets.toLocaleString()} wallets - positions > 10,000 USD
-            </span>
+            <span className={styles.channelMeta}>{stats.total.toLocaleString()} positions from {stats.uniqueWallets.toLocaleString()} wallets - positions &gt; 10,000 USD</span>
           </div>
           <div className={styles.refreshInfo}>
             <div className={styles.liveDot} />
-            <span>
-              {lastUpdate ? `Updated ${lastUpdate.toLocaleTimeString()}` : 'Loading...'}
-            </span>
+            <span>{lastUpdate ? `Updated ${lastUpdate.toLocaleTimeString()}` : 'Loading...'}</span>
           </div>
         </div>
 
         <div className={styles.tableContainer}>
           <div className={styles.tableHeader}>
-            <div>#</div>
-            <div>Asset</div>
-            <div>Side</div>
-            <div className={styles.sortable} onClick={() => handleSort('size')}>
-              Size <SortIndicator sortBy={sortBy} column="size" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
-            </div>
-            <div>Entry</div>
-            <div className={styles.sortable} onClick={() => handleSort('notional_usd')}>
-              Notional <SortIndicator sortBy={sortBy} column="notional_usd" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
-            </div>
-            <div className={styles.sortable} onClick={() => handleSort('unrealized_pnl')}>
-              uPnL <SortIndicator sortBy={sortBy} column="unrealized_pnl" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
-            </div>
+            {['#', 'Asset', 'Side'].map(h => <div key={h}>{h}</div>)}
+            {SORT_COLS.map(({ key, label }) => (
+              <div key={key} className={styles.sortable} onClick={() => handleSort(key)}>
+                {label} <SortIndicator sortBy={sortBy} column={key} sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
+              </div>
+            ))}
             <div>Wallet</div>
-            <div className={styles.sortable} onClick={() => handleSort('account_value')}>
-              Acct Value <SortIndicator sortBy={sortBy} column="account_value" sortDirection={sortDirection} className={styles.sortIndicator} arrowStyle="triangle" />
-            </div>
           </div>
 
           <div className={styles.tableBody}>
@@ -248,68 +170,35 @@ export default function OpenPositionsPage() {
                 {positions.map((p, idx) => {
                   const pnl = p.unrealized_pnl || 0;
                   const pnlClass = pnl > 0 ? styles.pnlPositive : pnl < 0 ? styles.pnlNegative : styles.pnlZero;
-
                   return (
-                    <div
-                      key={`${p.wallet_address}-${p.asset}-${p.direction}`}
-                      className={styles.tableRow}
-                      onClick={() => navigate(`/trader/${p.wallet_address}`)}
-                    >
+                    <div key={`${p.wallet_address}-${p.asset}-${p.direction}`} className={styles.tableRow} onClick={() => navigate(`/trader/${p.wallet_address}`)}>
                       <div className={styles.rankCell}>{idx + 1}</div>
                       <div className={styles.assetCell}>{p.asset}</div>
+                      <div><span className={p.direction === 'LONG' ? styles.directionLong : styles.directionShort}>{p.direction}</span></div>
+                      <div className={styles.valueText}>{p.size?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                      <div className={styles.valueText}>${p.entry_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                      <div className={styles.valueText}>{formatBalance(p.notional_usd)}</div>
+                      <div className={pnlClass}>{pnl > 0 ? '+' : ''}{formatBalance(pnl)}</div>
                       <div>
-                        <span className={p.direction === 'LONG' ? styles.directionLong : styles.directionShort}>
-                          {p.direction}
-                        </span>
-                      </div>
-                      <div className={styles.valueText}>
-                        {p.size?.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                      </div>
-                      <div className={styles.valueText}>
-                        ${p.entry_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </div>
-                      <div className={styles.valueText}>
-                        {formatBalance(p.notional_usd)}
-                      </div>
-                      <div className={pnlClass}>
-                        {pnl > 0 ? '+' : ''}{formatBalance(pnl)}
-                      </div>
-                      <div>
-                        <span
-                          className={styles.walletText}
-                          onClick={e => { e.stopPropagation(); navigate(`/trader/${p.wallet_address}`); }}
-                        >
+                        <span className={styles.walletText} onClick={e => { e.stopPropagation(); navigate(`/trader/${p.wallet_address}`); }}>
                           {p.wallet_address.slice(0, 6)}...{p.wallet_address.slice(-4)}
                         </span>
                       </div>
-                      <div className={styles.valueText}>
-                        {formatBalance(p.account_value)}
-                      </div>
+                      <div className={styles.valueText}>{formatBalance(p.account_value)}</div>
                     </div>
                   );
                 })}
-
                 {pagination.has_more && (
                   <div className={styles.loadMoreRow}>
-                    <button
-                      onClick={() => fetchPositions(pagination.page + 1, true)}
-                      className={styles.loadMoreBtn}
-                    >
+                    <button onClick={() => fetchPositions(pagination.page + 1, true)} className={styles.loadMoreBtn}>
                       Load More ({(pagination.total_count - positions.length).toLocaleString()} remaining)
                     </button>
                   </div>
                 )}
-
-                {!pagination.has_more && positions.length > 0 && (
-                  <div className={styles.endMessage}>
-                    End of results &bull; {pagination.total_count.toLocaleString()} positions
-                  </div>
-                )}
+                {!pagination.has_more && <div className={styles.endMessage}>End of results &bull; {pagination.total_count.toLocaleString()} positions</div>}
               </>
             ) : (
-              <div className={styles.emptyState}>
-                <p>No positions match your filters</p>
-              </div>
+              <div className={styles.emptyState}><p>No positions match your filters</p></div>
             )}
           </div>
         </div>
@@ -317,4 +206,3 @@ export default function OpenPositionsPage() {
     </div>
   );
 }
-
