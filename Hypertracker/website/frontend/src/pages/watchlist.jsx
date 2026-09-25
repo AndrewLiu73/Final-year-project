@@ -5,6 +5,7 @@ import useSort from '../hooks/useSort';
 import styles from './profitability.module.css';
 import watchStyles from './watchlist.module.css';
 import TraderTable from '../components/traderTable';
+import API_BASE from '../config';
 
 export default function Watchlist() {
     const navigate = useNavigate();
@@ -13,7 +14,7 @@ export default function Watchlist() {
     const [traders, setTraders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    // same sorting hook used across all pages now
+
     const { sortBy, sortDirection, handleSort } = useSort('pnl', 'desc');
 
     const [telegramId, setTelegramId] = useState(localStorage.getItem("telegram_id") || "");
@@ -24,10 +25,10 @@ export default function Watchlist() {
         async function loadWatchlist() {
             setLoading(true);
             try {
-                const res            = await fetch(`http://localhost:8000/api/watchlist/${userId}`);
+                const res            = await fetch(`${API_BASE}/api/watchlist/${userId}`);
                 const watchlistItems = await res.json();
                 const traderPromises = watchlistItems.map(item =>
-                    fetch(`http://localhost:8000/api/users/trader/${item.wallet_address}`)
+                    fetch(`${API_BASE}/api/users/trader/${item.wallet_address}`)
                         .then(r => r.json())
                         .then(data => ({
                             wallet:             data.wallet_address,
@@ -52,11 +53,10 @@ export default function Watchlist() {
         loadWatchlist();
     }, [userId]);
 
-    // add this function here, inside the component
     const saveTelegramId = () => {
         if (!telegramId) return;
         localStorage.setItem("telegram_id", telegramId);
-        fetch(`http://localhost:8000/api/users/telegram`, {
+        fetch(`${API_BASE}/api/users/telegram`, {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
             body:    JSON.stringify({ user_id: userId, telegram_id: telegramId })
@@ -64,7 +64,7 @@ export default function Watchlist() {
     };
 
     function removeFromWatchlist(wallet) {
-        fetch(`http://localhost:8000/api/watchlist/${userId}/${wallet}`, { method: 'DELETE' })
+        fetch(`${API_BASE}/api/watchlist/${userId}/${wallet}`, { method: 'DELETE' })
             .then(() => setTraders(prev => prev.filter(t => t.wallet !== wallet)));
     }
 
@@ -133,7 +133,7 @@ export default function Watchlist() {
                     </div>
                 </div>
 
-                {/* Bias bar */}
+                {/* bias bar */}
                 {groupBias && (
                     <div style={{ padding: '12px 20px', background: '#2f3136', borderBottom: '1px solid #202225' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '11px', color: '#96989d', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
@@ -153,7 +153,6 @@ export default function Watchlist() {
                     </div>
                 )}
 
-                {/* Telegram alert input — sits between bias bar and table */}
                 <div style={{
                     background:   '#2f3136',
                     padding:      '12px 20px',
@@ -200,8 +199,7 @@ export default function Watchlist() {
                     </span>
                 </div>
 
-                {/* Table */}
-                {/* Reusing the same TraderTable component as profitability page */}
+                {/* using TraderTable component as profitability page */}
                 <TraderTable
                     traders={sortedTraders}
                     sortBy={sortBy}

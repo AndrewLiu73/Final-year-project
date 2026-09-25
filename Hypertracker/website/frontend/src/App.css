@@ -147,6 +147,37 @@
   color: #ffffff;
 }
 
+/* ─── Bias history controls ─── */
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.control-group {
+  display: flex;
+  gap: 4px;
+}
+
+.control-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--bg-0);
+  margin: 0 4px;
+}
+
+/* ─── Millionaires badge ─── */
+.millionaires-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--bg-0);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
 /* ─── Section card ─── */
 .section-card {
   background: var(--bg-1);

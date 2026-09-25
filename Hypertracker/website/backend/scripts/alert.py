@@ -2,20 +2,27 @@ import asyncio
 import os
 from pathlib import Path
 from datetime import datetime
-from motor.motor_asyncio import AsyncIOMotorClient
+# from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import httpx
+
+from sqlite_db import get_async_connection
+from hyperliquid_client import WEIGHT_BUDGETS, WeightLimiter, post_info
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-MONGO_URI      = os.getenv("MONGO_URI")
+# MONGO_URI    = os.getenv("MONGO_URI")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-HL_API         = "https://api.hyperliquid.xyz/info"
 POLL_INTERVAL  = 30
 
 last_bias_per_user = {}
 known_positions    = {}
+
+HL_SEMAPHORE = asyncio.Semaphore(3)
+# this process's fixed slice of the shared 1200/min Hyperliquid budget — see
+# hyperliquid_client.WEIGHT_BUDGETS for why it's not the full 1200.
+HL_LIMITER = WeightLimiter(WEIGHT_BUDGETS["alert"])
 
 
 async def send_telegram(message, telegram_id):
@@ -28,13 +35,11 @@ async def send_telegram(message, telegram_id):
 
 
 async def fetch_wallet(client, wallet):
-    try:
-        res = await client.post(HL_API, json={"type": "clearinghouseState", "user": wallet}, timeout=10)
-        res.raise_for_status()
-        return wallet, res.json()
-    except Exception as e:
-        print(f"failed to fetch {wallet[:10]}: {e}")
-        return wallet, None
+    async with HL_SEMAPHORE:
+        data = await post_info(client, HL_LIMITER, {"type": "clearinghouseState", "user": wallet}, retries=3, timeout=10)
+        if data is None:
+            print(f"failed to fetch {wallet[:10]}")
+        return wallet, data
 
 
 async def fetch_all(wallets):
@@ -104,7 +109,7 @@ def build_positions_message(current_map, long_val, short_val):
                 coin_agg[coin]["short_count"] += 1
 
     lines = [
-        "📋 <b>HyperTracker — Open Positions</b>",
+        " <b>HyperTracker — Open Positions</b>",
         f"Time: {now_str()}",
         "",
         f"{emoji} Bias: <b>{bias}</b>  |  Long: {long_pct:.1f}%  Short: {short_pct:.1f}%",
@@ -152,7 +157,7 @@ def build_positions_message(current_map, long_val, short_val):
 async def send_snapshot(results, wallets, telegram_id):
     current_map, long_val, short_val = parse_positions(results)
     msg = build_positions_message(current_map, long_val, short_val)
-    msg = msg.replace("📋 <b>HyperTracker — Open Positions</b>", "📊 <b>HyperTracker — Live Snapshot</b>")
+    msg = msg.replace(" <b>HyperTracker — Open Positions</b>", " <b>HyperTracker — Live Snapshot</b>")
     msg += f"\nWallets tracked: {len(wallets)}"
     await send_telegram(msg, telegram_id)
     bias = "LONG" if long_val >= short_val else "SHORT"
@@ -183,7 +188,7 @@ async def detect_trades(user_id, current_map, telegram_id):
             elif prev[coin]["side"] != d["side"]:
                 e = "🟢" if d["side"] == "LONG" else "🔴"
                 alerts.append(
-                    f"🔄 <b>Position Flipped</b>\n"
+                    f" <b>Position Flipped</b>\n"
                     f"Wallet: {wallet[:8]}...{wallet[-4:]}\n"
                     f"Coin: <b>{coin}</b>  {prev[coin]['side']} → <b>{d['side']}</b>\n"
                     f"Size: {d['szi']}  |  Entry: ${d['entry']:,.2f}\n"
@@ -192,7 +197,7 @@ async def detect_trades(user_id, current_map, telegram_id):
 
             elif abs(d["szi"]) != abs(prev[coin]["szi"]):
                 diff = abs(d["szi"]) - abs(prev[coin]["szi"])
-                label = "📈 Scaled IN" if diff > 0 else "📉 Scaled OUT"
+                label = " Scaled IN" if diff > 0 else " Scaled OUT"
                 e = "🟢" if d["side"] == "LONG" else "🔴"
                 alerts.append(
                     f"{e} <b>{label}</b>\n"
@@ -229,7 +234,7 @@ async def detect_bias(user_id, long_val, short_val, telegram_id):
     if prev and bias != prev:
         emoji = "🟢" if bias == "LONG" else "🔴"
         await send_telegram(
-            f"⚠️ <b>Bias Shift!</b>\n\n"
+            f" <b>Bias Shift!</b>\n\n"
             f"{prev} → {emoji} <b>{bias}</b>\n"
             f"Long: {long_pct:.1f}%  (${long_val:,.0f})\n"
             f"Short: {short_pct:.1f}%  (${short_val:,.0f})\n"
@@ -244,10 +249,14 @@ async def detect_bias(user_id, long_val, short_val, telegram_id):
 SUMMARY_EVERY = 10
 
 async def monitor_user(db, user_id, telegram_id):
-    watchlist = await db["watchlists"].find(
-        {"user_id": user_id}, {"wallet_address": 1}
-    ).to_list(length=500)
-    wallets = [item["wallet_address"] for item in watchlist]
+    # watchlist = await db["watchlists"].find(
+    #     {"user_id": user_id}, {"wallet_address": 1}
+    # ).to_list(length=500)
+    # wallets = [item["wallet_address"] for item in watchlist]
+    cursor = await db.execute(
+        "SELECT wallet_address FROM watchlists WHERE user_id = ? LIMIT 500", (user_id,)
+    )
+    wallets = [row["wallet_address"] for row in await cursor.fetchall()]
 
     if not wallets:
         print(f"user {user_id} has empty watchlist, skipping")
@@ -276,21 +285,28 @@ async def monitor_user(db, user_id, telegram_id):
             await send_telegram(msg, telegram_id)
 
         total_open = sum(len(c) for c in current_map.values())
-        print(f"[{now_str()}] user {user_id} | bias={bias} L=${long_val:,.0f} S=${short_val:,.0f} open={total_open}")
+        print(f"[{now_str()}] user {user_id} open={total_open}")
 
 
 async def main():
-    mongo = AsyncIOMotorClient(MONGO_URI)
-    db = mongo["hyperliquid"]
-
-    users = await db["users"].find(
-        {"telegram_id": {"$exists": True, "$ne": ""}},
-        {"user_id": 1, "telegram_id": 1}
-    ).to_list(length=1000)
+    # mongo = AsyncIOMotorClient(MONGO_URI)
+    # db = mongo["hyperliquid"]
+    #
+    # users = await db["watchlist_users"].find(
+    #     {"telegram_id": {"$exists": True, "$ne": ""}},
+    #     {"user_id": 1, "telegram_id": 1}
+    # ).to_list(length=1000)
+    db = await get_async_connection()
+    cursor = await db.execute(
+        "SELECT user_id, telegram_id FROM watchlist_users "
+        "WHERE telegram_id IS NOT NULL AND telegram_id != '' LIMIT 1000"
+    )
+    users = await cursor.fetchall()
 
     if not users:
         print("no users with telegram ids found, they need to save their id on the watchlist page")
-        mongo.close()
+        # mongo.close()
+        await db.close()
         return
 
     print(f"starting monitor for {len(users)} users")
@@ -305,7 +321,8 @@ async def main():
     except KeyboardInterrupt:
         print("stopped")
     finally:
-        mongo.close()
+        # mongo.close()
+        await db.close()
 
 
 if __name__ == "__main__":

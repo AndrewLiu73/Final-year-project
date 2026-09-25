@@ -5,6 +5,7 @@ import styles from './TraderDetail.module.css';
 import { calculateDirectionalBias } from '../utils/biasUtils';
 import { formatBalance } from '../utils/formatters';
 import HistoryChart from '../components/balanceChart';
+import API_BASE from '../config';
 
 const G = '#3ba55d', R = '#ed4245';
 const pnlColor = v => v > 0 ? G : R;
@@ -38,8 +39,8 @@ export default function TraderDetailPage() {
     setLoading(true); setError(null);
     try {
       const [liveRes, dbRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/users/trader/${wallet}/live`, { signal }),
-        fetch(`http://localhost:8000/api/users/trader/${wallet}`,      { signal }),
+        fetch(`${API_BASE}/api/users/trader/${wallet}/live`, { signal }),
+        fetch(`${API_BASE}/api/users/trader/${wallet}`,      { signal }),
       ]);
       const [liveData, dbData] = await Promise.all([
         liveRes.ok ? liveRes.json() : null,

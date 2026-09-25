@@ -1,13 +1,17 @@
 import requests
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from dotenv import load_dotenv
-from pymongo import MongoClient
+# from pymongo import MongoClient
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+
+sys.path.insert(0, str(BASE_DIR))
+from scripts.sqlite_db import get_connection, loads
 
 BASE_URL   = "https://api.hyperliquid.xyz/info"
 DELAY      = 1.5   # slightly more conservative than 1.2
@@ -332,21 +336,31 @@ def debug_wallet_unrealized_pnl(wallet_address):
 def check_database_sample():
     section("CHECKING DATABASE")
 
-    mongo_uri = os.getenv('MONGO_URI')
-    if not mongo_uri:
-        print("  MONGO_URI not found in .env")
-        return
+    # mongo_uri = os.getenv('MONGO_URI')
+    # if not mongo_uri:
+    #     print("  MONGO_URI not found in .env")
+    #     return
 
     try:
-        client = MongoClient(mongo_uri)
-        db     = client['hyperliquid']
+        # client = MongoClient(mongo_uri)
+        # db     = client['hyperliquid']
+        #
+        # total          = db.profitability_metrics.count_documents({})
+        # with_positions = db.profitability_metrics.count_documents({"open_positions_count": {"$gt": 0}})
+        # zero_upnl      = db.profitability_metrics.count_documents({
+        #     "open_positions_count": {"$gt": 0},
+        #     "unrealized_pnl_usdc": 0
+        # })
+        db = get_connection()
 
-        total          = db.profitability_metrics.count_documents({})
-        with_positions = db.profitability_metrics.count_documents({"open_positions_count": {"$gt": 0}})
-        zero_upnl      = db.profitability_metrics.count_documents({
-            "open_positions_count": {"$gt": 0},
-            "unrealized_pnl_usdc": 0
-        })
+        total = db.execute("SELECT COUNT(*) AS c FROM profitability_metrics").fetchone()["c"]
+        with_positions = db.execute(
+            "SELECT COUNT(*) AS c FROM profitability_metrics WHERE open_positions_count > 0"
+        ).fetchone()["c"]
+        zero_upnl = db.execute(
+            "SELECT COUNT(*) AS c FROM profitability_metrics "
+            "WHERE open_positions_count > 0 AND json_extract(data, '$.unrealized_pnl_usdc') = 0"
+        ).fetchone()["c"]
 
         print(f"  total records:           {total}")
         print(f"  records with positions:  {with_positions}")
@@ -356,7 +370,11 @@ def check_database_sample():
             pct = round(zero_upnl / with_positions * 100, 1)
             print(f"  ({pct}% of wallets with positions have stale zero upnl - will be fixed on next scan cycle)")
 
-        sample = db.profitability_metrics.find_one({"open_positions_count": {"$gt": 0}})
+        # sample = db.profitability_metrics.find_one({"open_positions_count": {"$gt": 0}})
+        sample_row = db.execute(
+            "SELECT data FROM profitability_metrics WHERE open_positions_count > 0 LIMIT 1"
+        ).fetchone()
+        sample = loads(sample_row["data"]) if sample_row else None
 
         if sample:
             print(f"\n  sample wallet:     {sample.get('wallet_address')}")
@@ -367,7 +385,7 @@ def check_database_sample():
             for pos in sample.get('open_positions', []):
                 print(f"    - {pos}")
 
-        client.close()
+        db.close()
 
     except Exception as e:
         print(f"  database error: {e}")

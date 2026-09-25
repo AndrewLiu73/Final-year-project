@@ -1,16 +1,25 @@
 import asyncio
 import httpx
+import json
 import os
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
+# from motor.motor_asyncio import AsyncIOMotorClient
+
+from sqlite_db import get_async_connection, loads
+from hyperliquid_client import WEIGHT_BUDGETS, WeightLimiter, post_info
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-MONGO_URI       = os.getenv("MONGO_URI")
+# MONGO_URI     = os.getenv("MONGO_URI")
 TARGET_COINS    = ["BTC", "ETH", "HYPE"]
 SPIKE_THRESHOLD = 5.0
+
+# this process's fixed slice of the shared 1200/min Hyperliquid budget — see
+# hyperliquid_client.WEIGHT_BUDGETS for why it's not the full 1200. Only the
+# Hyperliquid fetcher below draws from it; the other exchanges have their own limits.
+HL_LIMITER = WeightLimiter(WEIGHT_BUDGETS["fetch_oi"])
 
 
 def get_trend_label(oi_chg, px_chg):
@@ -67,9 +76,9 @@ async def fetch_deribit_oi(client, coin):
 
 
 async def fetch_hyperliquid_oi(client, coin):
-    r = await client.post("https://api.hyperliquid.xyz/info", json={"type": "metaAndAssetCtxs"}, timeout=8)
-    if r.status_code == 200:
-        meta, ctxs = r.json()
+    data = await post_info(client, HL_LIMITER, {"type": "metaAndAssetCtxs"}, retries=1, timeout=8)
+    if data:
+        meta, ctxs = data
         for i, asset in enumerate(meta["universe"]):
             if asset["name"] == coin:
                 px = float(ctxs[i].get("markPx", 0))
@@ -80,8 +89,14 @@ async def upsert_oi(db, exchange, coin, oi_usd, mark_px):
     if not oi_usd or not mark_px:
         return
 
-    coll, now = db["exchange_oi"], datetime.now(timezone.utc)
-    existing  = await coll.find_one({"exchange": exchange, "coin": coin})
+    now = datetime.now(timezone.utc)
+    # coll     = db["exchange_oi"]
+    # existing = await coll.find_one({"exchange": exchange, "coin": coin})
+    cursor = await db.execute(
+        "SELECT data FROM exchange_oi WHERE exchange = ? AND coin = ?", (exchange, coin)
+    )
+    row = await cursor.fetchone()
+    existing = loads(row["data"]) if row else None
 
     if existing:
         ts = existing.get("timestamp_30min")
@@ -103,23 +118,29 @@ async def upsert_oi(db, exchange, coin, oi_usd, mark_px):
     px_chg = (mark_px - px_30) / px_30 * 100 if px_30 > 0 else 0
     trend  = get_trend_label(oi_chg, px_chg)
 
-    if abs(oi_chg) >= SPIKE_THRESHOLD:
-        print(f"[SPIKE] {exchange} {coin}: ${oi_30/1e9:.2f}B -> ${oi_usd/1e9:.2f}B ({oi_chg:+.1f}%) | {trend}")
+    doc = {"exchange": exchange, "coin": coin, "oi_usd": oi_usd, "mark_px": mark_px,
+           "oi_30min_ago": oi_30, "px_30min_ago": px_30,
+           "change_pct_30min": round(oi_chg, 2), "px_change_30min": round(px_chg, 2),
+           "trend_label": trend, "timestamp_30min": ts_new.isoformat(), "timestamp": now.isoformat()}
 
-    await coll.update_one(
-        {"exchange": exchange, "coin": coin},
-        {"$set": {"exchange": exchange, "coin": coin, "oi_usd": oi_usd, "mark_px": mark_px,
-                  "oi_30min_ago": oi_30, "px_30min_ago": px_30,
-                  "change_pct_30min": round(oi_chg, 2), "px_change_30min": round(px_chg, 2),
-                  "trend_label": trend, "timestamp_30min": ts_new.isoformat(), "timestamp": now.isoformat()}},
-        upsert=True
+    # await coll.update_one(
+    #     {"exchange": exchange, "coin": coin},
+    #     {"$set": doc},
+    #     upsert=True
+    # )
+    await db.execute(
+        "INSERT INTO exchange_oi (exchange, coin, timestamp, data) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(exchange, coin) DO UPDATE SET timestamp=excluded.timestamp, data=excluded.data",
+        (exchange, coin, doc["timestamp"], json.dumps(doc)),
     )
-    print(f"[{exchange}] {coin}: ${oi_usd/1e9:.3f}B | OI {oi_chg:+.1f}% | PX {px_chg:+.1f}% | {trend}")
+    await db.commit()
+    print(f"{exchange} | OI fetched for {coin}" )
 
 
 async def main():
-    db = AsyncIOMotorClient(MONGO_URI)["hyperliquid"]
-    await db["exchange_oi"].create_index([("exchange", 1), ("coin", 1)], unique=True)
+    # db = AsyncIOMotorClient(MONGO_URI)["hyperliquid"]
+    # await db["exchange_oi"].create_index([("exchange", 1), ("coin", 1)], unique=True)
+    db = await get_async_connection()
 
     fetchers   = [fetch_binance_oi, fetch_bybit_oi, fetch_okx_oi, fetch_deribit_oi, fetch_hyperliquid_oi]
     exchanges  = ["Binance", "Bybit", "OKX", "Deribit", "Hyperliquid"]

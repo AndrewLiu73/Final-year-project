@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 
-
+import API_BASE from './config';
 import BiasHistoryChart from './components/biasHistoryChart';
 import PositionBar from './components/positionBar';
 import ProfitableTradersPage from './pages/profitability';
@@ -67,14 +67,14 @@ function MarketView() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`http://localhost:8000/api/bias-summaries`)
+    fetch(`${API_BASE}/api/bias-summaries`)
       .then(res => res.json())
       .then(data => { setBiasSummaries(data); setLoading(false); })
       .catch(err  => { console.error(err);    setLoading(false); });
   }, []);
 
     useEffect(() => {
-    fetch(`http://localhost:8000/api/millionaires`)
+    fetch(`${API_BASE}/api/millionaires`)
       .then(res => res.json())
       .then(data => setMillionairesCount(data.length))
       .catch(err => console.error(err));
@@ -175,16 +175,10 @@ function MarketView() {
         <div className="section-title">Bias History</div>
 
         {/* All controls in one row */}
-        <div style={{
-          display:      'flex',
-          flexWrap:     'wrap',
-          alignItems:   'center',
-          gap:          '6px',
-          marginBottom: '20px',
-        }}>
+        <div className="controls-row">
 
           {/* Period */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div className="control-group">
             {periodBtns.map(b => (
               <button
                 key={b.value}
@@ -197,10 +191,10 @@ function MarketView() {
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '24px', background: '#202225', margin: '0 4px' }} />
+          <div className="control-divider" />
 
           {/* Coin */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div className="control-group">
             {coinBtns.map(b => (
               <button
                 key={b.value}
@@ -213,10 +207,10 @@ function MarketView() {
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '24px', background: '#202225', margin: '0 4px' }} />
+          <div className="control-divider" />
 
           {/* Long / Short */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div className="control-group">
             {typeBtns.map(b => (
               <button
                 key={b.value}
@@ -238,40 +232,22 @@ function MarketView() {
         />
       </div>
 
-      {/* Asset breakdown */}
-      {latest && (
-    <div className="section-card">
+    {/* Asset breakdown */}
+    {latest && (
+      <div className="section-card">
         <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Asset Breakdown</span>
-            <span style={{
-                fontSize:     '12px',
-                fontWeight:   '600',
-                color:        '#b9bbbe',
-                background:   '#202225',
-                padding:      '4px 10px',
-                borderRadius: '12px',
-            }}>
-                {millionairesCount.toLocaleString()} millionaires tracked
-            </span>
+          <span>Unique Millionaires Bias</span>
+          <span className="millionaires-badge">
+            {millionairesCount.toLocaleString()} millionaires tracked
+          </span>
         </div>
-        {coins.map(([coin, stats]) => (
-            <PositionBar
-                key={coin}
-                coin={coin}
-                position={`$${((stats.long + stats.short) / 1e9).toFixed(2)}B`}
-                long={`$${(stats.long / 1e9).toFixed(2)}B`}
-                long_pct={stats.long_pct?.toFixed(2)}
-                short={`$${(stats.short / 1e9).toFixed(2)}B`}
-                short_pct={stats.short_pct?.toFixed(2)}
-            />
-        ))}
-    </div>
-)}
+        <PositionBar aggregate={aggregate} />
+      </div>
+    )}
 
-
-    </div>
-  );
-}
+        </div>
+      );
+    }
 
 // --- App Shell ---
 function AppContent() {

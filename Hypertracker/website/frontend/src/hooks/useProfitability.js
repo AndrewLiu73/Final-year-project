@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import API_BASE from '../config';
 
 
 
@@ -48,7 +49,7 @@ export const useProfitableTraders = (filters = {}, pageSize = 100, sortBy = 'pnl
       if (filters.search) params.append('search', filters.search);
 
 
-      const response = await fetch(`http://localhost:8000/api/users/profitable?${params}`, {
+      const response = await fetch(`${API_BASE}/api/users/profitable?${params}`, {
         signal: abortRef.current.signal,
       });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);

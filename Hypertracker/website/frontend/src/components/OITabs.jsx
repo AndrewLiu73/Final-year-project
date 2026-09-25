@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import styles from './OITabs.module.css';
 import { COIN_COLOURS } from '../utils/constants';
+import API_BASE from '../config';
 
 const GREEN = '#3ba55d';
 const RED   = '#ed4245';
@@ -263,7 +264,7 @@ export default function OITabs({ aggregate }) {
   }, []);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/exchange-oi')
+    fetch(`${API_BASE}/api/exchange-oi`)
       .then(r  => r.json())
       .then(setBackendData)
       .catch(e => console.error('Backend OI fetch failed:', e));

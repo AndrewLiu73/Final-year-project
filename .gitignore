@@ -32,4 +32,9 @@ Thumbs.db
 # mongo backups - these are huge and already live in the db
 **/mongo_backup/
 
+# local sqlite database - huge and regenerable via scripts/migrate_mongo_to_sqlite.py
+**/database/*.db
+**/database/*.db-shm
+**/database/*.db-wal
+
 .idea

@@ -15,7 +15,7 @@ export default function useSort(initialColumn = 'pnl', initialDir = 'desc') {
   const handleSort = useCallback((column) => {
     setSortBy(prev => {
       if (prev === column) {
-        // same column — just flip direction
+        // same column just flip direction
         setSortDirection(d => d === 'desc' ? 'asc' : 'desc');
         return prev;
       }

@@ -4,23 +4,24 @@ import { formatBalance } from '../utils/formatters';
 import styles from './openPositions.module.css';
 import useSort from '../hooks/useSort';
 import SortIndicator from '../components/sortIndicator';
+import API_BASE from '../config';
 
 const REFRESH_INTERVAL = 30_000;
 
 const SORT_COLS = [
-  { key: 'size',           label: 'Size'       },
-  { key: 'notional_usd',   label: 'Notional'   },
-  { key: 'unrealized_pnl', label: 'uPnL'       },
-  { key: 'account_value',  label: 'Acct Value' },
+  { key: 'size',           label: 'Size'        },
+  { key: 'entry_price',    label: 'Entry Price' },
+  { key: 'notional_usd',   label: 'Notional'    },
+  { key: 'unrealized_pnl', label: 'uPnL'        },
 ];
 
 export default function OpenPositionsPage() {
   const navigate = useNavigate();
-  const [positions,    setPositions]    = useState([]);
-  const [concentration,setConcentration]= useState([]);
-  const [pagination,   setPagination]   = useState({ total_count: 0, unique_wallets: 0, page: 1, page_size: 50, has_more: false });
-  const [loading,      setLoading]      = useState(true);
-  const [lastUpdate,   setLastUpdate]   = useState(null);
+  const [positions,     setPositions]     = useState([]);
+  const [concentration, setConcentration] = useState([]);
+  const [pagination,    setPagination]    = useState({ total_count: 0, unique_wallets: 0, page: 1, page_size: 50, has_more: false });
+  const [loading,       setLoading]       = useState(true);
+  const [lastUpdate,    setLastUpdate]    = useState(null);
   const [assetFilter,     setAssetFilter]     = useState('');
   const [directionFilter, setDirectionFilter] = useState('');
   const { sortBy, sortDirection, handleSort } = useSort('notional_usd', 'desc');
@@ -33,7 +34,7 @@ export default function OpenPositionsPage() {
       const params = new URLSearchParams({ sort_by: sortBy, sort_direction: sortDirection, page: String(page), page_size: '50' });
       if (assetFilter)     params.append('asset',     assetFilter);
       if (directionFilter) params.append('direction', directionFilter);
-      const json = await fetch(`http://localhost:8000/api/large-positions?${params}`, { signal: abortRef.current.signal }).then(r => r.json());
+      const json = await fetch(`${API_BASE}/api/large-positions?${params}`, { signal: abortRef.current.signal }).then(r => r.json());
       setPositions(prev => append ? [...prev, ...json.data] : json.data);
       setPagination(json.pagination);
       setLastUpdate(new Date());
@@ -44,7 +45,7 @@ export default function OpenPositionsPage() {
 
   const fetchConcentration = useCallback(async () => {
     try {
-      setConcentration(await fetch('http://localhost:8000/api/asset-concentration').then(r => r.json()));
+      setConcentration(await fetch(`${API_BASE}/api/asset-concentration`).then(r => r.json()));
     } catch (err) { console.error('fetch concentration failed:', err); }
   }, []);
 
@@ -59,27 +60,33 @@ export default function OpenPositionsPage() {
   }, [fetchPositions, fetchConcentration]);
 
   const stats = useMemo(() => ({
-    totalNotional: positions.reduce((s, p) => s + (p.notional_usd    || 0), 0),
-    totalUpnl:     positions.reduce((s, p) => s + (p.unrealized_pnl  || 0), 0),
+    totalNotional: positions.reduce((s, p) => s + (p.notional_usd   || 0), 0),
+    totalUpnl:     positions.reduce((s, p) => s + (p.unrealized_pnl || 0), 0),
     longs:         positions.filter(p => p.direction === 'LONG').length,
     shorts:        positions.filter(p => p.direction === 'SHORT').length,
     total:         pagination.total_count,
     uniqueWallets: pagination.unique_wallets,
   }), [positions, pagination.total_count, pagination.unique_wallets]);
 
-  if (loading) return <div className={styles.loadingState}><div className={styles.spinner} /><span>Loading open positions...</span></div>;
+  if (loading) return (
+    <div className={styles.loadingState}>
+      <div className={styles.spinner} />
+      <span>Loading open positions...</span>
+    </div>
+  );
 
   const STAT_ROWS = [
-    ['Positions',      stats.total.toLocaleString(),          null                          ],
-    ['Unique Wallets', stats.uniqueWallets.toLocaleString(),  null                          ],
-    ['Longs',          stats.longs.toLocaleString(),          styles.statValueGreen         ],
-    ['Shorts',         stats.shorts.toLocaleString(),         styles.statValueRed           ],
-    ['Notional',       formatBalance(stats.totalNotional),    null                          ],
-    ['Total uPnL',     formatBalance(stats.totalUpnl),        stats.totalUpnl >= 0 ? styles.statValueGreen : styles.statValueRed],
+    ['Positions',      stats.total.toLocaleString(),         null                          ],
+    ['Unique Wallets', stats.uniqueWallets.toLocaleString(), null                          ],
+    ['Longs',          stats.longs.toLocaleString(),         styles.statValueGreen         ],
+    ['Shorts',         stats.shorts.toLocaleString(),        styles.statValueRed           ],
+    ['Notional',       formatBalance(stats.totalNotional),   null                          ],
+    ['Total uPnL',     formatBalance(stats.totalUpnl),       stats.totalUpnl >= 0 ? styles.statValueGreen : styles.statValueRed],
   ];
 
   return (
     <div className={styles.container}>
+
       {/* Sidebar */}
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
@@ -145,7 +152,9 @@ export default function OpenPositionsPage() {
           <div className={styles.channelInfo}>
             <span className={styles.channelIcon}>#</span>
             <h1 className={styles.channelName}>open-positions</h1>
-            <span className={styles.channelMeta}>{stats.total.toLocaleString()} positions from {stats.uniqueWallets.toLocaleString()} wallets - positions &gt; 10,000 USD</span>
+            <span className={styles.channelMeta}>
+              {stats.total.toLocaleString()} positions from {stats.uniqueWallets.toLocaleString()} wallets - positions &gt; 10,000 USD
+            </span>
           </div>
           <div className={styles.refreshInfo}>
             <div className={styles.liveDot} />
@@ -171,31 +180,52 @@ export default function OpenPositionsPage() {
                   const pnl = p.unrealized_pnl || 0;
                   const pnlClass = pnl > 0 ? styles.pnlPositive : pnl < 0 ? styles.pnlNegative : styles.pnlZero;
                   return (
-                    <div key={`${p.wallet_address}-${p.asset}-${p.direction}`} className={styles.tableRow} onClick={() => navigate(`/trader/${p.wallet_address}`)}>
+                    <div
+                      key={`${p.wallet_address}-${p.asset}-${p.direction}`}
+                      className={styles.tableRow}
+                      onClick={() => navigate(`/trader/${p.wallet_address}`)}
+                    >
                       <div className={styles.rankCell}>{idx + 1}</div>
                       <div className={styles.assetCell}>{p.asset}</div>
-                      <div><span className={p.direction === 'LONG' ? styles.directionLong : styles.directionShort}>{p.direction}</span></div>
-                      <div className={styles.valueText}>{p.size?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-                      <div className={styles.valueText}>${p.entry_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                      <div>
+                        <span className={p.direction === 'LONG' ? styles.directionLong : styles.directionShort}>
+                          {p.direction}
+                        </span>
+                      </div>
+                      <div className={styles.valueText}>
+                        {p.size?.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </div>
+                      <div className={styles.valueText}>
+                        ${p.entry_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
                       <div className={styles.valueText}>{formatBalance(p.notional_usd)}</div>
                       <div className={pnlClass}>{pnl > 0 ? '+' : ''}{formatBalance(pnl)}</div>
                       <div>
-                        <span className={styles.walletText} onClick={e => { e.stopPropagation(); navigate(`/trader/${p.wallet_address}`); }}>
+                        <span
+                          className={styles.walletText}
+                          onClick={e => { e.stopPropagation(); navigate(`/trader/${p.wallet_address}`); }}
+                        >
                           {p.wallet_address.slice(0, 6)}...{p.wallet_address.slice(-4)}
                         </span>
                       </div>
-                      <div className={styles.valueText}>{formatBalance(p.account_value)}</div>
                     </div>
                   );
                 })}
                 {pagination.has_more && (
                   <div className={styles.loadMoreRow}>
-                    <button onClick={() => fetchPositions(pagination.page + 1, true)} className={styles.loadMoreBtn}>
+                    <button
+                      onClick={() => fetchPositions(pagination.page + 1, true)}
+                      className={styles.loadMoreBtn}
+                    >
                       Load More ({(pagination.total_count - positions.length).toLocaleString()} remaining)
                     </button>
                   </div>
                 )}
-                {!pagination.has_more && <div className={styles.endMessage}>End of results &bull; {pagination.total_count.toLocaleString()} positions</div>}
+                {!pagination.has_more && (
+                  <div className={styles.endMessage}>
+                    End of results &bull; {pagination.total_count.toLocaleString()} positions
+                  </div>
+                )}
               </>
             ) : (
               <div className={styles.emptyState}><p>No positions match your filters</p></div>
